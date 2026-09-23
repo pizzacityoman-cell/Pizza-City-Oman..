@@ -56,6 +56,26 @@ const STATIC_ROUTES = {
     description:
       "Ordering, pricing, delivery estimates and promo rules for Pizza City Oman online ordering.",
   },
+  "/menu/pizza": {
+    title: "Sourdough Pizzas Menu — Prices & Delivery | Pizza City Oman",
+    description: "Browse our signature artisanal sourdough pizzas baked fresh with premium ingredients. Fast 30-min delivery across Oman.",
+  },
+  "/menu/combo": {
+    title: "Combo Deals & Value Meals | Pizza City Oman",
+    description: "Discover value-packed pizza combos, group meals, and bundle deals at Pizza City Oman. Order online via WhatsApp.",
+  },
+  "/menu/sides": {
+    title: "Sides & Appetizers Menu | Pizza City Oman",
+    description: "Crispy garlic breads, chicken wings, potato wedges, and savory sides at Pizza City Oman.",
+  },
+  "/menu/drinks": {
+    title: "Chilled Drinks & Beverages | Pizza City Oman",
+    description: "Refresh yourself with chilled beverages and soft drinks to complement your meal.",
+  },
+  "/menu/dessert": {
+    title: "Desserts & Sweet Treats | Pizza City Oman",
+    description: "Indulge in freshly baked sweet dessert pies and tiramisu treats at Pizza City Oman.",
+  },
 };
 
 // Branch storefront data for prerendered location pages.

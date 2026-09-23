@@ -8,7 +8,7 @@ import HomeCategorySection from "../components/home/HomeCategorySection";
 import MenuCategorySlider from "../components/MenuCategorySlider";
 import HomeReviews from "../components/home/HomeReviews";
 import HomeLocationChips from "../components/home/HomeLocationChips";
-import { HeroBanner, MenuItem, Branch } from "../types";
+import { HeroBanner, MenuItem, Branch, Category } from "../types";
 import { getFeaturedItems, getCategoryItems } from "../lib/menuSelectors";
 import { getBannerAltText } from "../lib/altText";
 
@@ -19,52 +19,26 @@ interface HomePageProps {
   displayToast: (msg: string) => void;
   onOpenOutletSelector?: () => void;
   menuItems?: MenuItem[];
+  categories?: Category[];
   isLoadingMenu?: boolean;
   branches?: Branch[];
   onAddToCart?: (item: MenuItem) => void;
   setMenuFilter?: (f: string) => void;
 }
 
-const heroContainerVariants = {
-  hidden: { opacity: 0 },
-  visible: {
-    opacity: 1,
-    transition: { staggerChildren: 0.12, delayChildren: 0.1 }
-  }
-};
-
-const heroItemVariants = {
-  hidden: { opacity: 0, y: 20 },
-  visible: { opacity: 1, y: 0, transition: { type: "spring", stiffness: 100, damping: 15 } }
-};
-
-const HERO_DETAILS = {
-  crust: {
-    title: "🌾 48-Hour Signature Sourdough",
-    description: "Our signature crust undergoes a slow cold fermentation for 48 hours for maximum bubble structure, crisp golden oven-baked crown, and perfect light digestibility.",
-    stats: [{ label: "Crispiness Factor", value: 96 }, { label: "Fermentation Depth", value: 98 }, { label: "Golden Oven Bake", value: 95 }],
-    emoji: "🌾",
-    colorClass: "text-[var(--pc-red-500)] bg-[var(--pc-red-500)]/5 border-[var(--pc-red-500)]/10"
-  },
-  sauce: {
-    title: "🍅 Orchard-Sweet San Marzano",
-    description: "Crushed imported low-acidity sun-drenched Italian San Marzano tomatoes, premium sea salt, and a pinch of cold-pressed virgin olive oil.",
-    stats: [{ label: "Natural Sweetness", value: 94 }, { label: "Umami Power", value: 90 }, { label: "Basil Infusion", value: 88 }],
-    emoji: "🍅",
-    colorClass: "text-[var(--pc-amber-400)] bg-[var(--pc-amber-400)]/5 border-[var(--pc-amber-400)]/10"
-  },
-  cheese: {
-    title: "🧀 Premium Stretch Omani Milk Mozzarella",
-    description: "High-moisture whole milk fior di latte, hand-shaped daily by Omani cheese-smiths for the absolute ultimate golden melt pull.",
-    stats: [{ label: "Melt & Stretch Pull", value: 99 }, { label: "Buttery Dairy Depth", value: 94 }, { label: "Toasty Crust Bubble", value: 91 }],
-    emoji: "🧀",
-    colorClass: "text-amber-600 bg-amber-500/5 border-amber-500/10"
-  }
-};
-
-export default function HomePage({ banners, isLoadingBanners, setActiveTab, displayToast, onOpenOutletSelector, menuItems = [], isLoadingMenu = false, branches = [], onAddToCart, setMenuFilter }: HomePageProps) {
-  const [activeHeroTab, setActiveHeroTab] = useState<"crust" | "sauce" | "cheese">("crust");
-  const [pizzaRotation, setPizzaRotation] = useState(0);
+export default function HomePage({
+  banners,
+  isLoadingBanners,
+  setActiveTab,
+  displayToast,
+  onOpenOutletSelector,
+  menuItems = [],
+  categories = [],
+  isLoadingMenu = false,
+  branches = [],
+  onAddToCart,
+  setMenuFilter,
+}: HomePageProps) {
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -75,24 +49,49 @@ export default function HomePage({ banners, isLoadingBanners, setActiveTab, disp
     navigate(`/menu/${itemSlug(item)}`, { state: { backgroundLocation: location } });
   };
 
-  // Category slider is linked with the menu page: pick a category -> open /menu filtered to it.
+  // Category slider is linked with the menu page: pick a category -> open category URL.
   const handleCategorySelect = (catId: string) => {
-    if (setMenuFilter) setMenuFilter(catId);
-    navigate("/menu");
+    if (catId === "all") {
+      if (setMenuFilter) setMenuFilter("all");
+      navigate("/menu");
+    } else if (catId === "featured") {
+      if (setMenuFilter) setMenuFilter("featured");
+      navigate("/menu");
+    } else {
+      navigate(`/menu/${catId}`);
+    }
   };
 
-  // Same predicates as the menu page (lib/menuSelectors) — including
-  // unavailable items, so homepage teasers can never mismatch /menu.
-  const itemsByCategory = useMemo(() => {
-    return {
-      featured: getFeaturedItems(menuItems).slice(0, 6),
-      combo: getCategoryItems(menuItems, "combo").slice(0, 6),
-      pizza: getCategoryItems(menuItems, "pizza").slice(0, 6),
-      sides: getCategoryItems(menuItems, "sides").slice(0, 6),
-      drinks: getCategoryItems(menuItems, "drinks").slice(0, 6),
-      dessert: getCategoryItems(menuItems, "dessert").slice(0, 6),
-    };
-  }, [menuItems]);
+  const activeCategories = useMemo(() => {
+    if (categories && categories.length > 0) {
+      return categories
+        .filter((c) => c.active !== false && c.showOnMenu !== false)
+        .sort((a, b) => (a.displayOrder ?? 0) - (b.displayOrder ?? 0));
+    }
+    return [];
+  }, [categories]);
+
+  const featuredItems = useMemo(() => getFeaturedItems(menuItems).slice(0, 6), [menuItems]);
+
+  const categorySections = useMemo(() => {
+    if (activeCategories.length > 0) {
+      return activeCategories.map((cat) => ({
+        id: `home-cat-${cat.slug}`,
+        slug: cat.slug,
+        title: cat.name,
+        subtitle: cat.description || "Freshly prepared with authentic ingredients.",
+        items: getCategoryItems(menuItems, cat.slug).slice(0, 6),
+      }));
+    }
+    // Fallback if categories are loading
+    return [
+      { id: "home-cat-combo", slug: "combo", title: "Combo Deals", subtitle: "More food, smarter OMR value for groups.", items: getCategoryItems(menuItems, "combo").slice(0, 6) },
+      { id: "home-cat-pizza", slug: "pizza", title: "Handcrafted Pizzas", subtitle: "48-hour sourdough, oven-baked hot.", items: getCategoryItems(menuItems, "pizza").slice(0, 6) },
+      { id: "home-cat-sides", slug: "sides", title: "Savoury Sides & Appetizers", subtitle: "Garlic bread, wings and more to start.", items: getCategoryItems(menuItems, "sides").slice(0, 6) },
+      { id: "home-cat-drinks", slug: "drinks", title: "Ice Cold Drinks & Revivers", subtitle: "Chilled drinks to go with every slice.", items: getCategoryItems(menuItems, "drinks").slice(0, 6) },
+      { id: "home-cat-dessert", slug: "dessert", title: "Heavenly Sweet Finishes", subtitle: "Desserts to close the meal right.", items: getCategoryItems(menuItems, "dessert").slice(0, 6) },
+    ];
+  }, [activeCategories, menuItems]);
 
   const showMenuTeasers = isLoadingMenu || menuItems.length > 0;
 
@@ -162,105 +161,6 @@ export default function HomePage({ banners, isLoadingBanners, setActiveTab, disp
           />
         </div>
       </div>
-
-      {/* Hero section (Legacy fallback) */}
-      <section className="hidden container mx-auto px-4 md:px-8 grid grid-cols-1 md:grid-cols-12 gap-8 items-center pt-6 relative">
-        <div className="absolute inset-0 pointer-events-none overflow-hidden hidden lg:block">
-          <motion.div animate={{ y: [0, -15, 0], rotate: [0, 10, -10, 0] }} transition={{ duration: 6, repeat: Infinity, ease: "easeInOut" }} className="absolute top-12 left-10 text-3xl opacity-20">🌿</motion.div>
-          <motion.div animate={{ y: [0, -20, 0], rotate: [0, -15, 15, 0] }} transition={{ duration: 8, repeat: Infinity, ease: "easeInOut", delay: 1 }} className="absolute bottom-24 left-1/3 text-3xl opacity-20">🍅</motion.div>
-          <motion.div animate={{ y: [0, -18, 0], rotate: [0, 8, -8, 0] }} transition={{ duration: 7, repeat: Infinity, ease: "easeInOut", delay: 2 }} className="absolute top-1/2 left-2/3 text-3xl opacity-20">🫒</motion.div>
-          <motion.div animate={{ y: [0, -25, 0], rotate: [0, 12, -12, 0] }} transition={{ duration: 9, repeat: Infinity, ease: "easeInOut", delay: 0.5 }} className="absolute top-24 left-1/2 text-2xl opacity-15">🍄</motion.div>
-        </div>
-
-        <motion.div variants={heroContainerVariants} initial="hidden" animate="visible" className="md:col-span-7 space-y-6">
-          <motion.div variants={heroItemVariants} className="inline-flex items-center gap-2 text-xs font-black uppercase text-[var(--pc-amber-400)] bg-[var(--pc-amber-400)]/10 px-3.5 py-1.5 rounded-full">
-            🍕 Handcrafted · Premium · Delivered Fast
-          </motion.div>
-          <motion.h2 variants={heroItemVariants} className="font-playfair font-black text-4xl sm:text-5xl lg:text-6xl text-[var(--pc-gray-700)] leading-tight">
-            The Art of the <br />
-            <span className="text-transparent bg-clip-text bg-gradient-to-r from-[var(--pc-red-500)] to-[var(--pc-amber-400)] hover:brightness-110 transition-all duration-300">Perfect Slice</span> <br />
-            Starts Here.
-          </motion.h2>
-          <motion.p variants={heroItemVariants} className="text-[var(--pc-gray-500)] text-base md:text-lg leading-relaxed max-w-xl">
-            Handcrafted oven-baked pizzas, hand-kneaded signature sourdough bases, and premium Omani ingredients. Place an order directly onto the database with instant WhatsApp notification routing!
-          </motion.p>
-
-          <motion.div variants={heroItemVariants} className="bg-white rounded-3xl border border-[var(--pc-red-500)]/10 p-5 shadow-sm max-w-xl space-y-4">
-            <div className="flex items-center justify-between border-b border-gray-100 pb-3">
-              <span className="text-xs font-black uppercase tracking-wider text-[var(--pc-gray-500)]">Ingredient Spotlight</span>
-              <div className="flex gap-1">
-                {(["crust", "sauce", "cheese"] as const).map((tab) => (
-                  <button
-                    key={tab}
-                    onClick={() => {
-                      setActiveHeroTab(tab);
-                      displayToast(`✨ Spotlight updated: ${HERO_DETAILS[tab].title}`);
-                    }}
-                    className={`text-xs font-black capitalize px-3 py-1.5 rounded-xl border transition-all cursor-pointer ${
-                      activeHeroTab === tab ? "bg-[var(--pc-red-500)] text-white border-transparent shadow-xs" : "bg-gray-50 text-[var(--pc-gray-500)] border-gray-100 hover:bg-gray-100"
-                    }`}
-                  >
-                    {tab}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <AnimatePresence mode="wait">
-              <motion.div key={activeHeroTab} initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 10 }} transition={{ duration: 0.2 }} className="space-y-4">
-                <div className="space-y-1">
-                  <h4 className="font-playfair font-black text-base text-[var(--pc-gray-700)] flex items-center gap-1.5">{HERO_DETAILS[activeHeroTab].title}</h4>
-                  <p className="text-xs text-[var(--pc-gray-500)] leading-relaxed">{HERO_DETAILS[activeHeroTab].description}</p>
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">
-                  {HERO_DETAILS[activeHeroTab].stats.map((stat, sIdx) => (
-                    <div key={sIdx} className="space-y-1.5">
-                      <div className="flex justify-between text-[10px] font-black text-[var(--pc-gray-700)]">
-                        <span className="truncate">{stat.label}</span>
-                        <span className="text-[var(--pc-red-500)]">{stat.value}%</span>
-                      </div>
-                      <div className="h-1.5 w-full bg-gray-100 rounded-full overflow-hidden">
-                        <motion.div initial={{ width: 0 }} animate={{ width: `${stat.value}%` }} transition={{ duration: 0.8, ease: "easeOut" }} className="h-full bg-gradient-to-r from-[var(--pc-red-500)] to-[var(--pc-amber-400)] rounded-full" />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </motion.div>
-            </AnimatePresence>
-          </motion.div>
-
-          <motion.div variants={heroItemVariants} className="flex flex-col sm:flex-row gap-4 pt-2">
-            <button onClick={() => setActiveTab("menu")} className="px-8 py-4 bg-gradient-to-r from-[var(--pc-red-500)] to-[var(--pc-amber-400)] text-white rounded-full font-bold shadow-lg shadow-[var(--pc-red-500)]/30 hover:scale-[1.03] active:scale-[0.98] transition-all flex items-center justify-center gap-2 text-base cursor-pointer">
-              <ShoppingCart size={18} /> View Full Menu
-            </button>
-            <button onClick={() => setActiveTab("loc")} className="px-8 py-4 border-2 border-[var(--pc-red-500)] text-[var(--pc-red-500)] rounded-full font-bold hover:bg-[var(--pc-red-500)] hover:text-white active:scale-[0.98] transition-all flex items-center justify-center gap-2 text-base cursor-pointer">
-              <MapPin size={18} /> Select Outlet Location
-            </button>
-          </motion.div>
-        </motion.div>
-
-        <div className="md:col-span-5 relative w-full aspect-square max-w-md mx-auto flex items-center justify-center">
-          <div className="absolute inset-0 bg-gradient-to-tr from-[var(--pc-red-500)]/20 to-[var(--pc-amber-400)]/20 rounded-full blur-3xl -z-10 animate-pulse pointer-events-none" style={{ animationDuration: "4s" }} />
-          <div className="absolute inset-0 z-10 pointer-events-none">
-            <motion.div animate={{ y: [0, -8, 0], x: [0, 4, 0] }} transition={{ duration: 4, repeat: Infinity, ease: "easeInOut" }} className="absolute top-6 right-6 text-3xl bg-white/90 p-2 rounded-full border border-[var(--pc-red-500)]/10 shadow-sm flex items-center justify-center">🌶️</motion.div>
-            <motion.div animate={{ y: [0, 8, 0], x: [0, -4, 0] }} transition={{ duration: 4.5, repeat: Infinity, ease: "easeInOut", delay: 0.5 }} className="absolute top-1/3 -left-2 text-2xl bg-white/90 p-2 rounded-full border border-[var(--pc-red-500)]/10 shadow-sm flex items-center justify-center">🌿</motion.div>
-            <motion.div animate={{ y: [0, -6, 0], x: [0, -6, 0] }} transition={{ duration: 5, repeat: Infinity, ease: "easeInOut", delay: 1 }} className="absolute bottom-10 right-2 text-2xl bg-white/90 p-2 rounded-full border border-[var(--pc-red-500)]/10 shadow-sm flex items-center justify-center">🧀</motion.div>
-          </div>
-          <motion.div whileHover={{ scale: 1.02 }} className="relative w-[90%] h-[90%] p-3 bg-white rounded-[48px] border border-[var(--pc-red-500)]/10 shadow-2xl overflow-hidden cursor-pointer group" onClick={() => { setPizzaRotation(prev => prev + 90); displayToast("🍕 Smooth rotational spin activated!"); }}>
-            <motion.img src="https://images.unsplash.com/photo-1565299624946-b28f40a0ae38?auto=format&fit=crop&w=900&q=85" alt="Handcrafted Margherita pizza with sourdough crust — Pizza City Oman" animate={{ rotate: pizzaRotation }} whileHover={{ rotate: pizzaRotation + 45 }} transition={{ type: "spring", stiffness: 80, damping: 14 }} className="w-full h-full object-cover rounded-[38px] select-none" />
-            <div className="absolute inset-x-0 bottom-6 flex justify-center pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-300">
-              <span className="text-[10px] uppercase font-black tracking-widest text-[var(--pc-gray-700)] bg-white/95 px-3 py-1.5 rounded-full shadow-sm border border-gray-100">👆 Click to spin oven base</span>
-            </div>
-          </motion.div>
-          <motion.div animate={{ y: [0, -6, 0] }} transition={{ duration: 5, repeat: Infinity, ease: "easeInOut" }} className="absolute -bottom-2 -left-2 bg-white p-4 rounded-2xl flex items-center gap-3 border border-[var(--pc-red-500)]/10 shadow-xl max-w-xs z-20">
-            <span className="text-2xl">🔥</span>
-            <div>
-              <p className="text-xs font-black text-[var(--pc-gray-700)]">Continuous Hot Oven</p>
-              <p className="text-[10px] text-[var(--pc-gray-500)]">Fresh &amp; oven-baked hot</p>
-            </div>
-          </motion.div>
-        </div>
-      </section>
 
       {/* Statistics Teaser bar — daylight: warm cream; midnight: dark (via CSS) */}
       <section className="stats-section">
@@ -441,80 +341,48 @@ export default function HomePage({ banners, isLoadingBanners, setActiveTab, disp
         )}
       </section>
 
-      {/* Menu category slider — same section as the menu page, linked through to /menu */}
+      {/* Menu category slider — same section as the menu page, linked through to category URLs */}
       {showMenuTeasers && (
         <div className="container mx-auto px-4 md:px-8 mt-8 md:mt-12">
           <MenuCategorySlider
             menuItems={menuItems}
+            categories={categories}
             selectedId="all"
             onSelect={handleCategorySelect}
           />
         </div>
       )}
 
-      {/* Menu by category — 6 items on desktop (2 full rows), 3 on mobile + View All (plain /menu) */}
+      {/* Menu by category — 6 items on desktop (2 full rows), 4 on mobile + View All */}
       {showMenuTeasers && (
         <>
-          <HomeCategorySection
-            id="home-cat-featured"
-            title="Featured Items"
-            subtitle="Our most-loved picks — limited-time favourites."
-            items={itemsByCategory.featured}
-            isLoading={isLoadingMenu}
-            onOrder={handleAddToCart}
-            onQuickView={openQuickView}
-            displayToast={displayToast}
-          />
-          <HomeCategorySection
-            id="home-cat-combo"
-            title="Combo Deals"
-            subtitle="More food, smarter OMR value for groups."
-            items={itemsByCategory.combo}
-            isLoading={isLoadingMenu}
-            onOrder={handleAddToCart}
-            onQuickView={openQuickView}
-            displayToast={displayToast}
-          />
-          <HomeCategorySection
-            id="home-cat-pizza"
-            title="Handcrafted Pizzas"
-            subtitle="48-hour sourdough, oven-baked hot."
-            items={itemsByCategory.pizza}
-            isLoading={isLoadingMenu}
-            onOrder={handleAddToCart}
-            onQuickView={openQuickView}
-            displayToast={displayToast}
-          />
-          <HomeCategorySection
-            id="home-cat-sides"
-            title="Savoury Sides & Appetizers"
-            subtitle="Garlic bread, wings and more to start."
-            items={itemsByCategory.sides}
-            isLoading={isLoadingMenu}
-            onOrder={handleAddToCart}
-            onQuickView={openQuickView}
-            displayToast={displayToast}
-          />
-          <HomeCategorySection
-            id="home-cat-drinks"
-            title="Ice Cold Drinks & Revivers"
-            subtitle="Chilled drinks to go with every slice."
-            items={itemsByCategory.drinks}
-            isLoading={isLoadingMenu}
-            onOrder={handleAddToCart}
-            onQuickView={openQuickView}
-            displayToast={displayToast}
-          />
-          <HomeCategorySection
-            id="home-cat-dessert"
-            title="Heavenly Sweet Finishes"
-            subtitle="Desserts to close the meal right."
-            items={itemsByCategory.dessert}
-            isLoading={isLoadingMenu}
-            onOrder={handleAddToCart}
-            onQuickView={openQuickView}
-            displayToast={displayToast}
-          />
+          {featuredItems.length > 0 && (
+            <HomeCategorySection
+              id="home-cat-featured"
+              title="Featured Items"
+              subtitle="Our most-loved picks — limited-time favourites."
+              items={featuredItems}
+              isLoading={isLoadingMenu}
+              onOrder={handleAddToCart}
+              onQuickView={openQuickView}
+              displayToast={displayToast}
+            />
+          )}
+
+          {categorySections.map((sec) => (
+            <HomeCategorySection
+              key={sec.id}
+              id={sec.id}
+              categorySlug={sec.slug}
+              title={sec.title}
+              subtitle={sec.subtitle}
+              items={sec.items}
+              isLoading={isLoadingMenu}
+              onOrder={handleAddToCart}
+              onQuickView={openQuickView}
+              displayToast={displayToast}
+            />
+          ))}
         </>
       )}
 

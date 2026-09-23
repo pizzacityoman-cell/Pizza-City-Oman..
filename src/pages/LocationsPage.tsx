@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { Phone, MapPin, Clock, Truck, ShoppingBag, Navigation } from "lucide-react";
 import { Branch } from "../types";
 import { getBranchAltText } from "../lib/altText";
+import { getMediaUrl } from "../lib/images";
 
 /* ─────────────────── Helpers ─────────────────── */
 
@@ -16,16 +17,9 @@ function formatOmanPhone(raw: string): { display: string; tel: string } {
   return { display, tel };
 }
 
-/** Cloudinary URL with responsive width and auto-format */
+/** Legacy alias — use shared getMediaUrl() (handles R2 + legacy Cloudinary). */
 function cloudinaryUrl(imageUrl?: string, width = 400): string | undefined {
-  if (!imageUrl) return undefined;
-  if (imageUrl.includes("res.cloudinary.com")) {
-    return imageUrl.replace(
-      /\/upload\/(.*?)\//,
-      `/upload/w_${width},q_auto,f_auto/`
-    );
-  }
-  return imageUrl;
+  return getMediaUrl(imageUrl, width);
 }
 
 /** URL-safe slug */
@@ -86,6 +80,7 @@ export default function LocationsPage({ branches }: LocationsPageProps) {
                     alt={getBranchAltText(outlet)}
                     className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                     loading="lazy"
+                    onError={(e) => { e.currentTarget.style.display = "none"; }}
                   />
                 ) : (
                   <iframe 

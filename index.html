@@ -19,7 +19,7 @@
 
   <meta
     name="description"
-    content="Handcrafted oven-baked pizzas, sides & desserts delivered hot in ~30 minutes across Oman. Open daily 11 AM – 2 AM. Order via WhatsApp: +968 9692 8714."
+    content="Handcrafted oven-baked pizzas, burgers, pasta, sides, drinks and desserts from Pizza City Oman. Order online for fresh delivery from your nearest location."
   />
 
   <meta name="robots" content="index, follow" />
@@ -52,9 +52,9 @@
     content="Handcrafted oven-baked pizzas. Order online with WhatsApp checkout."
   />
 
-  <!-- Favicon -->
+  <!-- Favicon (local — no Cloudinary dependency) -->
   <link
-    rel="icon" href="https://res.cloudinary.com/dc6pr0lxh/image/upload/c_fill,g_center,w_144,h_144/v1784579858/PizzaCity-Logo_zgzbps.png" 
+    rel="icon" href="/favicon-32x32.png"
     type="image/png">
 
 
@@ -63,7 +63,9 @@
   <!-- Font Preconnect hints for Core Web Vitals optimization -->
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link rel="dns-prefetch" href="https://res.cloudinary.com" />
+
+  <!-- LCP preload: first hero banner loads eagerly (improves Largest Contentful Paint) -->
+  <link rel="preload" as="image" href="/og-image.png" fetchpriority="high" />
 
   <link
     href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Plus+Jakarta+Sans:wght@700;800&display=swap"
@@ -78,6 +80,7 @@
   <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
   <link rel="manifest" href="/site.webmanifest" />
   <meta name="theme-color" content="#b91c1c" />
+  
 
   <!-- Website identity / site-name structured data -->
   <script type="application/ld+json">
@@ -108,6 +111,22 @@
     "currenciesAccepted": "OMR",
     "paymentAccepted": "Cash, Credit Card, Bank Transfer",
     "hasMenu": "https://pizzacityoman.com/menu",
+    "openingHoursSpecification": [
+      {
+        "@type": "OpeningHoursSpecification",
+        "dayOfWeek": [
+          "https://schema.org/Monday",
+          "https://schema.org/Tuesday",
+          "https://schema.org/Wednesday",
+          "https://schema.org/Thursday",
+          "https://schema.org/Friday",
+          "https://schema.org/Saturday",
+          "https://schema.org/Sunday"
+        ],
+        "opens": "11:00",
+        "closes": "02:00"
+      }
+    ],
     "address": {
       "@type": "PostalAddress",
       "addressCountry": "OM",

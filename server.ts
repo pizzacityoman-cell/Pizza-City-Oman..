@@ -11,9 +11,14 @@ import rateLimit from "express-rate-limit";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import { createServer as createViteServer } from "vite";
-import { v2 as cloudinary } from "cloudinary";
 import multer from "multer";
-import { CloudinaryStorage } from "multer-storage-cloudinary";
+import {
+  buildR2Key,
+  isR2Configured,
+  normalizeMediaKind,
+  optimizeImage,
+  uploadToR2,
+} from "./src/server/r2.js";
 
 import { getEffectiveBasePrice, getOptimizedUnitPrice, getDefaultSizes } from "./shared/priceUtils.js";
 import type { MenuItemSize } from "./shared/priceUtils.js";
@@ -289,6 +294,59 @@ const SEED_MENU_ITEMS = [
   },
 ];
 
+const SEED_CATEGORIES = [
+  {
+    name: "Pizzas",
+    slug: "pizza",
+    description: "48-hour sourdough, oven-baked hot.",
+    displayOrder: 1,
+    active: true,
+    showOnMenu: true,
+    seoTitle: "Handcrafted Pizzas | Pizza City Oman",
+    seoDescription: "Explore our range of handcrafted sourdough pizzas freshly baked in Oman."
+  },
+  {
+    name: "Combo Deals",
+    slug: "combo",
+    description: "More food, smarter OMR value for groups.",
+    displayOrder: 2,
+    active: true,
+    showOnMenu: true,
+    seoTitle: "Combo Deals & Special Offers | Pizza City Oman",
+    seoDescription: "Value-packed meal deals and pizza combos at Pizza City Oman."
+  },
+  {
+    name: "Sides & Appetizers",
+    slug: "sides",
+    description: "Garlic bread, wings and more to start.",
+    displayOrder: 3,
+    active: true,
+    showOnMenu: true,
+    seoTitle: "Savoury Sides & Appetizers | Pizza City Oman",
+    seoDescription: "Delicious garlic breads, fries, and appetizers to complete your meal."
+  },
+  {
+    name: "Cold Drinks",
+    slug: "drinks",
+    description: "Chilled drinks to go with every slice.",
+    displayOrder: 4,
+    active: true,
+    showOnMenu: true,
+    seoTitle: "Ice Cold Drinks & Beverages | Pizza City Oman",
+    seoDescription: "Refreshing soft drinks and beverages at Pizza City Oman."
+  },
+  {
+    name: "Desserts",
+    slug: "dessert",
+    description: "Desserts to close the meal right.",
+    displayOrder: 5,
+    active: true,
+    showOnMenu: true,
+    seoTitle: "Heavenly Sweet Desserts | Pizza City Oman",
+    seoDescription: "Sweet treats and dessert pies to wrap up your meal at Pizza City Oman."
+  },
+];
+
 // MongoDB is the only data store — there are no in-memory/mock collections.
 // (Removed: inMemMenuItems, inMemBanners, inMemPromoCodes, inMemOrders,
 // inMemBranches and the dead data-local JSON persistence.)
@@ -355,9 +413,41 @@ const MenuItemSizeSubSchema = new mongoose.Schema({
   slices: { type: Number },
 }, { _id: false });
 
+const BundleGroupSubSchema = new mongoose.Schema({
+  id: { type: String, required: true },
+  title: { type: String, required: true },
+  description: { type: String, default: "" },
+  minSelections: { type: Number, required: true, default: 0 },
+  maxSelections: { type: Number, required: true, default: 1 },
+  required: { type: Boolean, default: false },
+  allowDuplicates: { type: Boolean, default: false },
+  optionItemIds: [{ type: String }],
+}, { _id: false, id: false });
+
+const BundleConfigSubSchema = new mongoose.Schema({
+  enabled: { type: Boolean, default: false },
+  groups: [BundleGroupSubSchema],
+}, { _id: false, id: false });
+
+const CategorySchema = new mongoose.Schema({
+  name: { type: String, required: true },
+  slug: { type: String, required: true, unique: true },
+  description: { type: String, default: "" },
+  image: { type: String, default: "" },
+  displayOrder: { type: Number, default: 0 },
+  active: { type: Boolean, default: true },
+  showOnMenu: { type: Boolean, default: true },
+  seoTitle: { type: String, default: "" },
+  seoDescription: { type: String, default: "" },
+}, { timestamps: true });
+
+CategorySchema.index({ displayOrder: 1 });
+
 const MenuItemSchema = new mongoose.Schema({
   name: { type: String, required: true },
   category: { type: String, required: true },
+  categoryId: { type: String, default: "" },
+  displayOrder: { type: Number, default: 0 },
   price: { type: Number, required: true },
   description: { type: String, default: "" },
   image: { type: String, default: "" },
@@ -370,7 +460,12 @@ const MenuItemSchema = new mongoose.Schema({
   discountPrice: { type: Number, default: 0 },
   discountPercentage: { type: Number, default: 0 },
   sizes: [MenuItemSizeSubSchema],
+  bundleConfig: BundleConfigSubSchema,
 });
+
+MenuItemSchema.index({ displayOrder: 1 });
+MenuItemSchema.index({ categoryId: 1 });
+MenuItemSchema.index({ category: 1 });
 
 const PromoCodeSchema = new mongoose.Schema({
   code: { type: String, required: true, unique: true },
@@ -380,6 +475,17 @@ const PromoCodeSchema = new mongoose.Schema({
   isActive: { type: Boolean, default: true },
 });
 
+const BundleSelectionItemSubSchema = new mongoose.Schema({
+  menuItemId: { type: String, required: true },
+  name: { type: String, required: true },
+  quantity: { type: Number, default: 1 },
+}, { _id: false, id: false });
+
+const BundleSelectionSubSchema = new mongoose.Schema({
+  groupId: { type: String, required: true },
+  groupTitle: { type: String, required: true },
+  items: [BundleSelectionItemSubSchema],
+}, { _id: false, id: false });
 
 const OrderSchema = new mongoose.Schema({
   items: [
@@ -389,6 +495,7 @@ const OrderSchema = new mongoose.Schema({
       size: { type: String },
       price: { type: Number, required: true },
       quantity: { type: Number, required: true },
+      bundleSelections: [BundleSelectionSubSchema],
     },
   ],
   customer: {
@@ -409,6 +516,7 @@ const OrderSchema = new mongoose.Schema({
 OrderSchema.index({ outlet: 1, timestamp: -1 });
 OrderSchema.index({ status: 1 });
 
+const MongoCategory = mongoose.model("Category", CategorySchema);
 const MongoMenuItem = mongoose.model("MenuItem", MenuItemSchema);
 const MongoOrder = mongoose.model("Order", OrderSchema);
 const MongoPromoCode = mongoose.model("PromoCode", PromoCodeSchema);
@@ -478,10 +586,72 @@ mongoose.connection.on("reconnected", () => {
 
 async function seedMongoIfEmpty() {
   try {
+    const catCount = await MongoCategory.countDocuments();
+    if (catCount === 0) {
+      await MongoCategory.insertMany(SEED_CATEGORIES);
+      console.log("Seeded database with default Pizza City categories.");
+    }
+
     const count = await MongoMenuItem.countDocuments();
     if (count === 0) {
       await MongoMenuItem.insertMany(SEED_MENU_ITEMS);
       console.log("Seeded database with default Pizza City menu items.");
+    }
+
+    // Safe Backfill/Migration: ensure all menu items have valid categoryId and displayOrder
+    const categories = await MongoCategory.find().lean();
+    const catBySlug = new Map<string, any>();
+    const catByName = new Map<string, any>();
+    categories.forEach((c: any) => {
+      if (c.slug) catBySlug.set(c.slug.toLowerCase(), c);
+      if (c.name) catByName.set(c.name.toLowerCase(), c);
+    });
+
+    const menuItemsToMigrate = await MongoMenuItem.find({
+      $or: [
+        { categoryId: { $exists: false } },
+        { categoryId: "" },
+        { categoryId: null },
+        { displayOrder: { $exists: false } },
+        { displayOrder: null },
+      ],
+    });
+
+    if (menuItemsToMigrate.length > 0) {
+      console.log(`Migrating ${menuItemsToMigrate.length} menu items for categoryId & displayOrder...`);
+      for (let i = 0; i < menuItemsToMigrate.length; i++) {
+        const item = menuItemsToMigrate[i];
+        const rawCat = (item.category || "").toLowerCase().trim();
+        let matchedCat = catBySlug.get(rawCat) || catByName.get(rawCat);
+
+        if (!matchedCat && rawCat) {
+          const newSlug = rawCat.replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "");
+          const newCat = await MongoCategory.create({
+            name: rawCat.charAt(0).toUpperCase() + rawCat.slice(1),
+            slug: newSlug || `cat-${Date.now()}`,
+            description: "",
+            displayOrder: categories.length + 1,
+            active: true,
+            showOnMenu: true,
+          });
+          matchedCat = newCat;
+          catBySlug.set(newCat.slug, newCat);
+          catByName.set(newCat.name.toLowerCase(), newCat);
+        }
+
+        const updates: any = {};
+        if (matchedCat && (!item.categoryId || item.categoryId === "")) {
+          updates.categoryId = matchedCat._id.toString();
+        }
+        if (item.displayOrder === undefined || item.displayOrder === null) {
+          updates.displayOrder = i + 1;
+        }
+
+        if (Object.keys(updates).length > 0) {
+          await MongoMenuItem.updateOne({ _id: item._id }, { $set: updates });
+        }
+      }
+      console.log("Menu items category migration completed successfully.");
     }
 
     const bannerCount = await MongoBanner.countDocuments();
@@ -527,10 +697,15 @@ async function seedMongoIfEmpty() {
 async function connectMongoDBWithRetry() {
   try {
     await mongoose.connect(MONGODB_URI as string, {
-      serverSelectionTimeoutMS: 5000,
+      // M0/M2 shared tiers often need >5s after idle (cold start) — 5s turned
+      // a slow-but-healthy DB into a 503 that blanked Promo codes/Locations.
+      serverSelectionTimeoutMS: 15000,
       socketTimeoutMS: 60000,
       heartbeatFrequencyMS: 10000,
-      maxPoolSize: 50,
+      // 50 connections overwhelms an M0/M2 (~100 max for the whole cluster);
+      // 15 is plenty for this traffic and reduces pool contention.
+      maxPoolSize: 15,
+      minPoolSize: 2,
       tls: true,
       retryWrites: true,
     } as mongoose.ConnectOptions);
@@ -996,14 +1171,33 @@ app.get("/api/health", async (req, res) => {
   });
 });
 
+// GET /api/categories — fetch active categories for the menu
+app.get("/api/categories", async (req, res) => {
+  if (respondDbDownForRead(res)) return;
+  try {
+    const categories = await MongoCategory.find({ active: { $ne: false } })
+      .sort({ displayOrder: 1, _id: 1 })
+      .lean();
+    res.header("Cache-Control", "public, max-age=60, stale-while-revalidate=300");
+    return res.json(categories);
+  } catch (error: any) {
+    return res.status(500).json({ error: "Error retrieving categories: " + error.message });
+  }
+});
+
 // GET /api/menu — fetch all menu items (filter by category)
 app.get("/api/menu", async (req, res) => {
   if (respondDbDownForRead(res)) return;
-  const { category } = req.query;
+  const { category, categoryId } = req.query;
 
   try {
-    const query = category ? { category: String(category) } : {};
-    const items = await MongoMenuItem.find(query);
+    const query: any = {};
+    if (categoryId) {
+      query.categoryId = String(categoryId);
+    } else if (category) {
+      query.$or = [{ category: String(category) }, { categoryId: String(category) }];
+    }
+    const items = await MongoMenuItem.find(query).sort({ displayOrder: 1, _id: 1 });
     // Dynamic catalog, but changes are admin-driven and infrequent — allow a
     // minute of edge caching with stale-while-revalidate for repeat visits.
     res.header("Cache-Control", "public, max-age=60, stale-while-revalidate=300");
@@ -1081,11 +1275,35 @@ app.post("/api/orders", orderRateLimiter, requireDb, async (req, res) => {
 
   try {
     // 1. Look up each item in active DB and recalculate pricing server-side (NEVER trust client price)
-    const computedItems: Array<{ menuItemId: string; name: string; size?: string; price: number; quantity: number }> = [];
+    const computedItems: Array<{
+      menuItemId: string;
+      name: string;
+      size?: string;
+      price: number;
+      quantity: number;
+      bundleSelections?: Array<{
+        groupId: string;
+        groupTitle: string;
+        items: Array<{ menuItemId: string; name: string; quantity?: number }>;
+      }>;
+    }> = [];
     let subtotal = 0;
 
-    // Single batched fetch (was N+1 serial findById calls — one RTT total).
-    const requestedIds = items.map((item: any) => item.menuItemId);
+    // Single batched fetch: collect main menuItemIds and all optionItemIds in bundle selections
+    const requestedIds: string[] = [];
+    for (const item of items) {
+      if (item && item.menuItemId) requestedIds.push(String(item.menuItemId));
+      if (item && Array.isArray(item.bundleSelections)) {
+        for (const g of item.bundleSelections) {
+          if (g && Array.isArray(g.items)) {
+            for (const opt of g.items) {
+              if (opt && opt.menuItemId) requestedIds.push(String(opt.menuItemId));
+            }
+          }
+        }
+      }
+    }
+
     const objectIds = requestedIds
       .filter((id: any) => id && mongoose.Types.ObjectId.isValid(id))
       .map((id: string) => new mongoose.Types.ObjectId(id));
@@ -1135,6 +1353,116 @@ app.post("/api/orders", orderRateLimiter, requireDb, async (req, res) => {
       const lineTotal = Number((unitPrice * quantity).toFixed(3));
       subtotal += lineTotal;
 
+      // Bundle validation if menu item has bundle mode enabled
+      let validatedBundleSelections: Array<{
+        groupId: string;
+        groupTitle: string;
+        items: Array<{ menuItemId: string; name: string; quantity?: number }>;
+      }> | undefined = undefined;
+
+      if (foundItem.bundleConfig?.enabled && Array.isArray(foundItem.bundleConfig.groups) && foundItem.bundleConfig.groups.length > 0) {
+        const submittedSelections: any[] = Array.isArray(item.bundleSelections) ? item.bundleSelections : [];
+        const selectionMap = new Map(submittedSelections.map((s: any) => [String(s.groupId), s]));
+
+        // Reject unknown groups
+        const knownGroupIds = new Set(foundItem.bundleConfig.groups.map((g: any) => String(g.id)));
+        for (const s of submittedSelections) {
+          if (!knownGroupIds.has(String(s.groupId))) {
+            return res.status(400).json({ error: `Unknown bundle group "${s.groupId}" submitted for "${foundItem.name}".` });
+          }
+        }
+
+        const cleanSelections: Array<{
+          groupId: string;
+          groupTitle: string;
+          items: Array<{ menuItemId: string; name: string; quantity?: number }>;
+        }> = [];
+
+        for (const group of foundItem.bundleConfig.groups) {
+          const sel = selectionMap.get(String(group.id));
+          const selItems: any[] = (sel && Array.isArray(sel.items)) ? sel.items : [];
+
+          // Total selection count in this group
+          const totalSelectedCount = selItems.reduce((acc: number, it: any) => acc + Math.max(1, Number(it.quantity) || 1), 0);
+
+          // Enforce required
+          if (group.required && totalSelectedCount < (group.minSelections || 1)) {
+            return res.status(400).json({
+              error: `Selection group "${group.title}" is required. Please select at least ${group.minSelections || 1} item(s).`,
+            });
+          }
+
+          // Enforce min selections
+          if (totalSelectedCount > 0 && totalSelectedCount < (group.minSelections || 0)) {
+            return res.status(400).json({
+              error: `Selection group "${group.title}" requires a minimum of ${group.minSelections} item(s).`,
+            });
+          }
+
+          // Enforce max selections
+          if (totalSelectedCount > group.maxSelections) {
+            return res.status(400).json({
+              error: `Selection group "${group.title}" allows a maximum of ${group.maxSelections} item(s). You selected ${totalSelectedCount}.`,
+            });
+          }
+
+          // Enforce duplicates
+          if (!group.allowDuplicates) {
+            const seenOptionIds = new Set<string>();
+            for (const it of selItems) {
+              const optId = String(it.menuItemId);
+              if (seenOptionIds.has(optId) || (Number(it.quantity) || 1) > 1) {
+                return res.status(400).json({
+                  error: `Duplicate selections are not allowed for "${group.title}".`,
+                });
+              }
+              seenOptionIds.add(optId);
+            }
+          }
+
+          // Validate options against group.optionItemIds and database availability
+          const allowedOptionIds = new Set((group.optionItemIds || []).map((id: any) => String(id)));
+          const validatedItems: Array<{ menuItemId: string; name: string; quantity?: number }> = [];
+
+          for (const it of selItems) {
+            const optId = String(it.menuItemId);
+            if (!allowedOptionIds.has(optId)) {
+              return res.status(400).json({
+                error: `Option "${it.name || optId}" is not allowed in group "${group.title}".`,
+              });
+            }
+
+            const optionDoc: any = menuById.get(optId);
+            if (!optionDoc) {
+              return res.status(400).json({
+                error: `Option item with ID "${optId}" was not found.`,
+              });
+            }
+            if (optionDoc.available === false) {
+              return res.status(400).json({
+                error: `Selected option "${optionDoc.name}" is currently unavailable.`,
+              });
+            }
+
+            validatedItems.push({
+              menuItemId: optId,
+              name: optionDoc.name,
+              quantity: Math.max(1, Number(it.quantity) || 1),
+            });
+          }
+
+          if (validatedItems.length > 0) {
+            cleanSelections.push({
+              groupId: group.id,
+              groupTitle: group.title,
+              items: validatedItems,
+            });
+          }
+        }
+
+        validatedBundleSelections = cleanSelections;
+      }
+
       const hasMultipleSizes = itemSizes.length > 1;
       computedItems.push({
         menuItemId,
@@ -1142,6 +1470,7 @@ app.post("/api/orders", orderRateLimiter, requireDb, async (req, res) => {
         size: hasMultipleSizes ? size : undefined,
         price: unitPrice,
         quantity,
+        bundleSelections: validatedBundleSelections,
       });
     }
 
@@ -1215,7 +1544,19 @@ app.post("/api/orders", orderRateLimiter, requireDb, async (req, res) => {
     // Build the WhatsApp message trigger block per outlet
     const cleanPhone = targetPhone.replace(/\s+/g, "").replace("+", "");
     const itemsText = computedItems
-      .map((i) => `• ${i.quantity}x ${i.name} (OMR ${i.price.toFixed(3)})`)
+      .map((i) => {
+        let line = `• ${i.quantity}x ${i.name} (OMR ${i.price.toFixed(3)})`;
+        if (i.bundleSelections && i.bundleSelections.length > 0) {
+          for (const grp of i.bundleSelections) {
+            line += `\n  ${grp.groupTitle}:`;
+            for (const item of grp.items) {
+              const qtyStr = (item.quantity && item.quantity > 1) ? `${item.quantity}x ` : "";
+              line += `\n  • ${qtyStr}${item.name}`;
+            }
+          }
+        }
+        return line;
+      })
       .join("\n");
 
     const messageTemplate =
@@ -1245,7 +1586,14 @@ app.post("/api/orders", orderRateLimiter, requireDb, async (req, res) => {
         customerName: savedOrder.customer.name,
         phone: savedOrder.customer.phone,
         email: savedOrder.customer.email || "",
-        items: computedItems.map(i => `${i.quantity}x ${i.name}`).join(", "),
+        items: computedItems.map(i => {
+          let str = `${i.quantity}x ${i.name}`;
+          if (i.bundleSelections && i.bundleSelections.length > 0) {
+            const details = i.bundleSelections.map(g => `${g.groupTitle}: ${g.items.map(it => ((it.quantity && it.quantity > 1) ? `${it.quantity}x ` : "") + it.name).join(", ")}`);
+            str += ` (${details.join("; ")})`;
+          }
+          return str;
+        }).join(", "),
         total: savedOrder.total,
         status: savedOrder.status,
         notes: savedOrder.customer.notes || ""
@@ -1469,29 +1817,19 @@ app.get("/api/orders/:outletId/summary", verifyToken, checkOutletAccess("outletI
   }
 });
 
-// Cloudinary configuration
-cloudinary.config({
-  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-  api_key: process.env.CLOUDINARY_API_KEY,
-  api_secret: process.env.CLOUDINARY_API_SECRET,
-});
-
-// Multer storage engine using Cloudinary
-const cloudinaryStorage = new CloudinaryStorage({
-  cloudinary: cloudinary,
-  params: {
-    folder: "restaurant_banners",
-    allowed_formats: ["jpg", "jpeg", "png", "webp", "gif"],
-    transformation: [{ quality: "auto", fetch_format: "auto" }],
-  } as any,
-});
-
+// R2 media uploads: memory buffer -> sharp WebP optimize -> Cloudflare R2
 const upload = multer({
-  storage: cloudinaryStorage,
-  limits: { fileSize: 20 * 1024 * 1024 }, // 20MB
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB input cap (output WebP is ~80-150KB)
+  fileFilter: (_req, file, cb) => {
+    const allowed = ["image/jpeg", "image/jpg", "image/png", "image/webp", "image/gif"];
+    if (allowed.includes(file.mimetype)) return cb(null, true);
+    cb(new Error("Only JPG, PNG, WebP, and GIF images are allowed."));
+  },
 });
 
-// POST /admin/api/upload — upload an image to Cloudinary (Requires JWT auth)
+// POST /admin/api/upload — optimize to WebP + upload to Cloudflare R2 (Requires JWT auth)
+// Query: ?type=banner|menu|branch|misc (defaults to misc -> 800px; banner -> 1920px)
 app.post(
   "/admin/api/upload",
   verifyToken,
@@ -1499,7 +1837,7 @@ app.post(
   (req, res, next) => {
     upload.single("file")(req, res, (err) => {
       if (err) {
-        console.error("Multer/Cloudinary error:", err);
+        console.error("Multer upload error:", err);
         return res.status(400).json({ error: "Upload failed: " + err.message });
       }
       next();
@@ -1507,17 +1845,22 @@ app.post(
   },
   async (req, res) => {
     try {
-      if (!req.file) {
+      if (!req.file?.buffer) {
         return res.status(400).json({ error: "No file uploaded." });
       }
-
-      const secureUrl = (req.file as any).path || (req.file as any).secure_url;
-
-      if (!secureUrl) {
-        return res.status(500).json({ error: "Cloudinary upload succeeded but no URL was returned." });
+      if (!isR2Configured()) {
+        return res.status(503).json({
+          error:
+            "Media storage is not configured. Set CLOUDFLARE_R2_ACCOUNT_ID, CLOUDFLARE_R2_ACCESS_KEY_ID, CLOUDFLARE_R2_SECRET_ACCESS_KEY, CLOUDFLARE_R2_BUCKET_NAME, CLOUDFLARE_R2_PUBLIC_URL in .env.",
+        });
       }
 
-      return res.json({ success: true, url: secureUrl });
+      const kind = normalizeMediaKind((req.query as any)?.type);
+      const optimized = await optimizeImage(req.file.buffer, kind);
+      const key = buildR2Key(kind, (req.file as any).originalname);
+      const url = await uploadToR2(optimized, key);
+
+      return res.json({ success: true, url });
     } catch (error: any) {
       console.error("Upload error:", error);
       return res.status(500).json({ error: "Failed to upload image: " + error.message });
@@ -1727,7 +2070,7 @@ app.patch("/admin/api/menu/:id/toggle", verifyToken, requireSuperAdmin, requireD
 
 // POST /admin/api/menu — add a new menu item to catalog (Requires basic auth)
 app.post("/admin/api/menu", verifyToken, requireSuperAdmin, requireDb, async (req, res) => {
-  const { name, category, price, description, image, altText, available, subCategory, badge, featured, discountPrice, discountPercentage, sizes, pinnedFeatured } = req.body;
+  const { name, category, categoryId, displayOrder, price, description, image, altText, available, subCategory, badge, featured, discountPrice, discountPercentage, sizes, pinnedFeatured, bundleConfig } = req.body;
 
   if (!name || price === undefined) {
     return res.status(400).json({ error: "Menu item name and price are required." });
@@ -1746,9 +2089,39 @@ app.post("/admin/api/menu", verifyToken, requireSuperAdmin, requireDb, async (re
   }
 
   try {
+    let resolvedCategoryId = categoryId || "";
+    let resolvedCategorySlug = category || "pizza";
+
+    if (resolvedCategoryId) {
+      const catDoc = await MongoCategory.findById(resolvedCategoryId);
+      if (catDoc) {
+        resolvedCategorySlug = catDoc.slug;
+      }
+    } else if (resolvedCategorySlug) {
+      const catDoc = await MongoCategory.findOne({
+        $or: [{ slug: resolvedCategorySlug.toLowerCase() }, { name: new RegExp(`^${resolvedCategorySlug}$`, "i") }]
+      });
+      if (catDoc) {
+        resolvedCategoryId = catDoc._id.toString();
+        resolvedCategorySlug = catDoc.slug;
+      }
+    }
+
+    let itemOrder = 0;
+    if (displayOrder !== undefined && displayOrder !== null) {
+      itemOrder = Number(displayOrder) || 0;
+    } else {
+      const highest = await MongoMenuItem.findOne({
+        $or: [{ categoryId: resolvedCategoryId }, { category: resolvedCategorySlug }]
+      }).sort({ displayOrder: -1 }).lean() as any;
+      itemOrder = highest?.displayOrder ? highest.displayOrder + 1 : 1;
+    }
+
     const payload = {
       name,
-      category: category || "pizza",
+      category: resolvedCategorySlug,
+      categoryId: resolvedCategoryId,
+      displayOrder: itemOrder,
       price: parsedPrice,
       description: description || "",
       image: image || "",
@@ -1761,6 +2134,7 @@ app.post("/admin/api/menu", verifyToken, requireSuperAdmin, requireDb, async (re
       discountPrice: discountPrice ? Number(discountPrice) : 0,
       discountPercentage: discountPercentage ? Number(discountPercentage) : 0,
       sizes: sizes || undefined,
+      bundleConfig: bundleConfig || undefined,
     };
 
     const newItem = new MongoMenuItem(payload);
@@ -1772,11 +2146,33 @@ app.post("/admin/api/menu", verifyToken, requireSuperAdmin, requireDb, async (re
   }
 });
 
+// PATCH /admin/api/menu/reorder — bulk reorder menu items
+app.patch("/admin/api/menu/reorder", verifyToken, requireSuperAdmin, requireDb, async (req, res) => {
+  const { orders } = req.body; // Array of { id: string, displayOrder: number }
+  if (!Array.isArray(orders)) {
+    return res.status(400).json({ error: "orders array is required." });
+  }
+  try {
+    const bulkOps = orders.map((item: any) => ({
+      updateOne: {
+        filter: { _id: item.id },
+        update: { $set: { displayOrder: Number(item.displayOrder) || 0 } },
+      },
+    }));
+    if (bulkOps.length > 0) {
+      await MongoMenuItem.bulkWrite(bulkOps);
+    }
+    return res.json({ success: true });
+  } catch (error: any) {
+    return res.status(500).json({ error: "Failed to reorder menu items: " + error.message });
+  }
+});
+
 // PATCH /admin/api/menu/:id — update existing menu item (Requires basic auth)
 app.patch("/admin/api/menu/:id", verifyToken, requireSuperAdmin, requireDb, async (req, res) => {
   const { id } = req.params;
 
-  const allowedMenuFields = ["name", "category", "price", "description", "image", "altText", "available", "subCategory", "badge", "featured", "pinnedFeatured", "discountPrice", "discountPercentage", "sizes"];
+  const allowedMenuFields = ["name", "category", "categoryId", "displayOrder", "price", "description", "image", "altText", "available", "subCategory", "badge", "featured", "pinnedFeatured", "discountPrice", "discountPercentage", "sizes", "bundleConfig"];
   const updates: Record<string, any> = {};
   for (const key of allowedMenuFields) {
     if (req.body[key] !== undefined) {
@@ -1800,20 +2196,45 @@ app.patch("/admin/api/menu/:id", verifyToken, requireSuperAdmin, requireDb, asyn
     updates.discountPrice = parsedDiscount;
   }
 
+  if (updates.displayOrder !== undefined) {
+    updates.displayOrder = Number(updates.displayOrder) || 0;
+  }
+
   try {
+    if (updates.categoryId) {
+      const catDoc = await MongoCategory.findById(updates.categoryId);
+      if (catDoc) {
+        updates.category = catDoc.slug;
+      }
+    } else if (updates.category) {
+      const catDoc = await MongoCategory.findOne({
+        $or: [{ slug: updates.category.toLowerCase() }, { name: new RegExp(`^${updates.category}$`, "i") }]
+      });
+      if (catDoc) {
+        updates.categoryId = catDoc._id.toString();
+        updates.category = catDoc.slug;
+      }
+    }
+
     const doc = await MongoMenuItem.findById(id);
     if (!doc) {
       return res.status(404).json({ error: "Menu item not found." });
     }
+    doc.set(updates);
     if (updates.sizes !== undefined) {
       doc.sizes = updates.sizes;
       doc.markModified("sizes");
     }
-    doc.set(updates);
+    if (updates.bundleConfig !== undefined) {
+      doc.bundleConfig = updates.bundleConfig;
+      doc.markModified("bundleConfig");
+    }
     const updatedItem = await doc.save();
+    console.log(`[Admin Menu PATCH] Saved item "${updatedItem.name}" with bundleConfig:`, JSON.stringify(updatedItem.bundleConfig));
 
     return res.json({ success: true, item: updatedItem });
   } catch (error: any) {
+    console.error("[Admin Menu PATCH] Error:", error);
     return res.status(500).json({ error: "Failed to update menu item: " + error.message });
   }
 });
@@ -1831,6 +2252,154 @@ app.delete("/admin/api/menu/:id", verifyToken, requireSuperAdmin, requireDb, asy
     return res.json({ success: true });
   } catch (error: any) {
     return res.status(500).json({ error: "Failed to delete menu item: " + error.message });
+  }
+});
+
+// ─── ADMIN CATEGORY MANAGEMENT ENDPOINTS ───────────────────────────
+
+// GET /admin/api/categories — fetch all categories for admin console
+app.get("/admin/api/categories", verifyToken, requireDb, async (req, res) => {
+  try {
+    const categories = await MongoCategory.find().sort({ displayOrder: 1, _id: 1 }).lean();
+    return res.json(categories);
+  } catch (error: any) {
+    return res.status(500).json({ error: "Failed to fetch admin categories: " + error.message });
+  }
+});
+
+// POST /admin/api/categories — create category
+app.post("/admin/api/categories", verifyToken, requireSuperAdmin, requireDb, async (req, res) => {
+  const { name, slug, description, image, displayOrder, active, showOnMenu, seoTitle, seoDescription } = req.body;
+  if (!name || !name.trim()) {
+    return res.status(400).json({ error: "Category name is required." });
+  }
+
+  const cleanSlug = (slug || name).toLowerCase().trim().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "");
+  if (!cleanSlug) {
+    return res.status(400).json({ error: "A valid URL slug is required." });
+  }
+
+  try {
+    const existing = await MongoCategory.findOne({ slug: cleanSlug });
+    if (existing) {
+      return res.status(400).json({ error: `Category slug "${cleanSlug}" is already in use.` });
+    }
+
+    let order = 0;
+    if (displayOrder !== undefined && displayOrder !== null) {
+      order = Number(displayOrder) || 0;
+    } else {
+      const highest = await MongoCategory.findOne().sort({ displayOrder: -1 }).lean() as any;
+      order = highest?.displayOrder ? highest.displayOrder + 1 : 1;
+    }
+
+    const newCategory = new MongoCategory({
+      name: name.trim(),
+      slug: cleanSlug,
+      description: description || "",
+      image: image || "",
+      displayOrder: order,
+      active: active !== false,
+      showOnMenu: showOnMenu !== false,
+      seoTitle: seoTitle || "",
+      seoDescription: seoDescription || "",
+    });
+
+    const saved = await newCategory.save();
+    return res.status(201).json({ success: true, category: saved });
+  } catch (error: any) {
+    return res.status(500).json({ error: "Failed to create category: " + error.message });
+  }
+});
+
+// PATCH /admin/api/categories/reorder — bulk reorder categories
+app.patch("/admin/api/categories/reorder", verifyToken, requireSuperAdmin, requireDb, async (req, res) => {
+  const list = req.body.orders || req.body.categories;
+  if (!Array.isArray(list)) {
+    return res.status(400).json({ error: "orders or categories array is required." });
+  }
+  try {
+    const bulkOps = list.map((item: any) => ({
+      updateOne: {
+        filter: { _id: item.id },
+        update: { $set: { displayOrder: Number(item.displayOrder) || 0 } },
+      },
+    }));
+    if (bulkOps.length > 0) {
+      await MongoCategory.bulkWrite(bulkOps);
+    }
+    return res.json({ success: true });
+  } catch (error: any) {
+    return res.status(500).json({ error: "Failed to reorder categories: " + error.message });
+  }
+});
+
+// PATCH /admin/api/categories/:id — update category
+app.patch("/admin/api/categories/:id", verifyToken, requireSuperAdmin, requireDb, async (req, res) => {
+  const { id } = req.params;
+  const { name, slug, description, image, displayOrder, active, showOnMenu, seoTitle, seoDescription } = req.body;
+
+  try {
+    const doc = await MongoCategory.findById(id);
+    if (!doc) {
+      return res.status(404).json({ error: "Category not found." });
+    }
+
+    if (name !== undefined) doc.name = name.trim();
+    if (slug !== undefined) {
+      const cleanSlug = slug.toLowerCase().trim().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "");
+      if (cleanSlug && cleanSlug !== doc.slug) {
+        const existing = await MongoCategory.findOne({ slug: cleanSlug, _id: { $ne: id } });
+        if (existing) {
+          return res.status(400).json({ error: `Category slug "${cleanSlug}" is already in use.` });
+        }
+        doc.slug = cleanSlug;
+      }
+    }
+    if (description !== undefined) doc.description = description;
+    if (image !== undefined) doc.image = image;
+    if (displayOrder !== undefined) doc.displayOrder = Number(displayOrder) || 0;
+    if (active !== undefined) doc.active = !!active;
+    if (showOnMenu !== undefined) doc.showOnMenu = !!showOnMenu;
+    if (seoTitle !== undefined) doc.seoTitle = seoTitle;
+    if (seoDescription !== undefined) doc.seoDescription = seoDescription;
+
+    const updated = await doc.save();
+
+    // If slug changed, keep associated menu items' category string updated
+    if (slug !== undefined) {
+      await MongoMenuItem.updateMany(
+        { categoryId: doc._id.toString() },
+        { $set: { category: doc.slug } }
+      );
+    }
+
+    return res.json({ success: true, category: updated });
+  } catch (error: any) {
+    return res.status(500).json({ error: "Failed to update category: " + error.message });
+  }
+});
+
+// DELETE /admin/api/categories/:id — delete category
+app.delete("/admin/api/categories/:id", verifyToken, requireSuperAdmin, requireDb, async (req, res) => {
+  const { id } = req.params;
+  try {
+    const category = await MongoCategory.findById(id);
+    if (!category) {
+      return res.status(404).json({ error: "Category not found." });
+    }
+    const itemCount = await MongoMenuItem.countDocuments({
+      $or: [{ categoryId: id }, { category: category.slug }]
+    });
+    if (itemCount > 0) {
+      return res.status(400).json({
+        error: `Cannot delete category "${category.name}" because ${itemCount} menu items are currently assigned to it. Reassign or delete those items first.`
+      });
+    }
+    await MongoCategory.findByIdAndDelete(id);
+    return res.json({ success: true });
+  } catch (error: any) {
+    return res.status(500).json({ error: "Failed to delete category: " + error.message });
   }
 });
 
@@ -2119,6 +2688,19 @@ app.get("/sitemap.xml", async (req, res) => {
     }
 
     try {
+      let categoriesList: any[] = [];
+      if (useMongoDB) {
+        categoriesList = await MongoCategory.find({ active: { $ne: false }, showOnMenu: { $ne: false } }).sort({ displayOrder: 1 }).lean();
+      }
+      for (const c of categoriesList) {
+        if (!c || !c.slug) continue;
+        xml += `  <url>\n    <loc>${baseUrl}/menu/${c.slug}</loc>\n    <lastmod>${today}</lastmod>\n    <changefreq>daily</changefreq>\n    <priority>0.8</priority>\n  </url>\n`;
+      }
+    } catch (catErr) {
+      console.error("Error adding categories to sitemap:", catErr);
+    }
+
+    try {
       let menuList: any[] = [];
       if (useMongoDB) {
         menuList = await MongoMenuItem.find({ available: { $ne: false } }).lean();
@@ -2389,17 +2971,12 @@ async function renderStaticSeoPage(req: express.Request, res: express.Response, 
 async function renderMenuItemPage(req: express.Request, res: express.Response, next: express.NextFunction, vite?: any) {
   try {
     const slug = (req.params.slug || "").toLowerCase();
-    // DB-driven only — without a database the lookup misses and the request
-    // falls through to the client router. No seed/mock fallback.
-    let menuList: any[] = [];
-    if (useMongoDB) {
-      menuList = await MongoMenuItem.find().lean();
-    }
-    if (!menuList || menuList.length === 0) {
-      return next();
-    }
 
-    const item = findMenuItemBySlug(menuList, slug);
+    // 1. Check if slug matches an active Category
+    let categoryDoc: any = null;
+    if (useMongoDB) {
+      categoryDoc = await MongoCategory.findOne({ slug, active: { $ne: false } }).lean();
+    }
 
     const isProd = process.env.NODE_ENV === "production";
     const indexPath = isProd
@@ -2415,6 +2992,71 @@ async function renderMenuItemPage(req: express.Request, res: express.Response, n
     if (vite) {
       template = await vite.transformIndexHtml(req.originalUrl, template);
     }
+
+    if (categoryDoc) {
+      const pageTitle = categoryDoc.seoTitle || `${categoryDoc.name} | Pizza City Oman`;
+      const pageDesc = categoryDoc.seoDescription || categoryDoc.description || `Browse our delicious ${categoryDoc.name} at Pizza City Oman. Order online with quick delivery.`;
+      const canonicalUrl = `https://pizzacityoman.com/menu/${categoryDoc.slug}`;
+
+      const categoryBreadcrumbSchema = {
+        "@context": "https://schema.org",
+        "@type": "BreadcrumbList",
+        itemListElement: [
+          { "@type": "ListItem", position: 1, name: "Home", item: "https://pizzacityoman.com" },
+          { "@type": "ListItem", position: 2, name: "Menu", item: "https://pizzacityoman.com/menu" },
+          { "@type": "ListItem", position: 3, name: categoryDoc.name },
+        ],
+      };
+
+      template = template.replace(/<title>.*?<\/title>/i, `<title>${pageTitle}</title>`);
+
+      if (template.includes('name="description"')) {
+        template = template.replace(
+          /<meta\s+name="description"\s+content=".*?"\s*\/?>/i,
+          `<meta name="description" content="${pageDesc}" />`
+        );
+      }
+
+      if (template.includes('rel="canonical"')) {
+        template = template.replace(
+          /<link\s+rel="canonical"\s+href=".*?"\s*\/?>/i,
+          `<link rel="canonical" href="${canonicalUrl}" />`
+        );
+      } else {
+        template = template.replace("</head>", `  <link rel="canonical" href="${canonicalUrl}" />\n</head>`);
+      }
+
+      template = template.replace(
+        /<meta\s+property="og:title"\s+content=".*?"\s*\/?>/i,
+        `<meta property="og:title" content="${pageTitle}" />`
+      );
+      template = template.replace(
+        /<meta\s+property="og:description"\s+content=".*?"\s*\/?>/i,
+        `<meta property="og:description" content="${pageDesc}" />`
+      );
+      template = template.replace(
+        /<meta\s+property="og:url"\s+content=".*?"\s*\/?>/i,
+        `<meta property="og:url" content="${canonicalUrl}" />`
+      );
+
+      template = template.replace(
+        "</head>",
+        `  <script type="application/ld+json">\n${JSON.stringify(categoryBreadcrumbSchema, null, 2)}\n  </script>\n</head>`
+      );
+
+      return res.send(template);
+    }
+
+    // 2. Check if slug matches a Menu Item
+    let menuList: any[] = [];
+    if (useMongoDB) {
+      menuList = await MongoMenuItem.find().lean();
+    }
+    if (!menuList || menuList.length === 0) {
+      return next();
+    }
+
+    const item = findMenuItemBySlug(menuList, slug);
 
     if (!item) {
       template = template.replace(

@@ -32,13 +32,18 @@ import {
   Star,
   Sun,
   Moon,
+  ArrowUp,
+  ArrowDown,
+  Layers,
+  Settings,
 } from "lucide-react";
 import { Link } from "react-router-dom";
-import { Order, MenuItem, Branch } from "../types";
+import { Order, MenuItem, Branch, BundleConfig, Category } from "../types";
 import type { MenuItemSize } from "../lib/priceUtils";
 import { getDefaultSizes } from "../lib/priceUtils";
 import { getMenuItemAltText, getBannerAltText, getBranchAltText } from "../lib/altText";
 import { FALLBACK_FOOD_IMAGE } from "../lib/images";
+import { BundleConfigEditor } from "./admin/BundleConfigEditor";
 
 interface AdminDashboardProps {
   onShowToast: (msg: string) => void;
@@ -55,6 +60,8 @@ interface ImageUploaderProps {
   token: string;
   label?: string;
   className?: string;
+  /** Maps to server ?type= — controls resize preset (banner 1920px, menu/branch 800px). */
+  uploadType?: "banner" | "menu" | "branch" | "misc";
 }
 
 function ImageUploader({
@@ -65,6 +72,7 @@ function ImageUploader({
   token,
   label = "Upload Image",
   className = "",
+  uploadType = "misc",
 }: ImageUploaderProps) {
   const [isUploading, setIsUploading] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
@@ -77,9 +85,9 @@ function ImageUploader({
       return;
     }
 
-    const maxSize = 20 * 1024 * 1024;
+    const maxSize = 10 * 1024 * 1024;
     if (file.size > maxSize) {
-      onShowToast("❌ File size exceeds 20MB limit.");
+      onShowToast("❌ File size exceeds 10MB limit (auto-compressed to WebP on upload).");
       return;
     }
 
@@ -88,7 +96,7 @@ function ImageUploader({
       const formData = new FormData();
       formData.append("file", file);
 
-      const res = await fetch("/admin/api/upload", {
+      const res = await fetch(`/admin/api/upload?type=${uploadType}`, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${token}`,
@@ -104,7 +112,7 @@ function ImageUploader({
       const data = await res.json();
       if (data.success && data.url) {
         onChange(data.url);
-        onShowToast("✨ Image uploaded successfully!");
+        onShowToast("✨ Uploaded + auto-compressed to WebP!");
       } else {
         throw new Error("Invalid response payload from server upload endpoint");
       }
@@ -249,6 +257,7 @@ export default function AdminDashboard({ onShowToast, onMenuUpdated, isDarkMode,
   // Promos management state
   const [promos, setPromos] = useState<any[]>([]);
   const [isLoadingPromos, setIsLoadingPromos] = useState(false);
+  const [promosError, setPromosError] = useState(false);
   const [isPromoModalOpen, setIsPromoModalOpen] = useState(false);
   const [editingPromo, setEditingPromo] = useState<any | null>(null);
 
@@ -291,6 +300,7 @@ export default function AdminDashboard({ onShowToast, onMenuUpdated, isDarkMode,
   // Dynamic Branches Manager state hooks
   const [branches, setBranches] = useState<Branch[]>([]);
   const [isLoadingBranches, setIsLoadingBranches] = useState(false);
+  const [branchesError, setBranchesError] = useState(false);
   const [isBranchModalOpen, setIsBranchModalOpen] = useState(false);
   const [editingBranch, setEditingBranch] = useState<Branch | null>(null);
 
@@ -306,6 +316,23 @@ export default function AdminDashboard({ onShowToast, onMenuUpdated, isDarkMode,
   const [branchImage, setBranchImage] = useState("");
   const [branchAltText, setBranchAltText] = useState("");
 
+  // Dynamic Categories Manager state hooks
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [isLoadingCategories, setIsLoadingCategories] = useState(false);
+  const [isCategoryManagerOpen, setIsCategoryManagerOpen] = useState(false);
+  const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
+  const [editingCategory, setEditingCategory] = useState<Category | null>(null);
+
+  const [catName, setCatName] = useState("");
+  const [catSlug, setCatSlug] = useState("");
+  const [catDesc, setCatDesc] = useState("");
+  const [catImage, setCatImage] = useState("");
+  const [catDisplayOrder, setCatDisplayOrder] = useState("");
+  const [catActive, setCatActive] = useState(true);
+  const [catShowOnMenu, setCatShowOnMenu] = useState(true);
+  const [catSeoTitle, setCatSeoTitle] = useState("");
+  const [catSeoDesc, setCatSeoDesc] = useState("");
+
   // Modal State
   const [isMenuModalOpen, setIsMenuModalOpen] = useState(false);
   const [editingMenuItem, setEditingMenuItem] = useState<MenuItem | null>(null);
@@ -314,6 +341,8 @@ export default function AdminDashboard({ onShowToast, onMenuUpdated, isDarkMode,
   const [fieldName, setFieldName] = useState("");
   const [fieldPrice, setFieldPrice] = useState("");
   const [fieldCategory, setFieldCategory] = useState("pizza");
+  const [fieldCategoryId, setFieldCategoryId] = useState("");
+  const [fieldDisplayOrder, setFieldDisplayOrder] = useState("");
   const [fieldSubcat, setFieldSubcat] = useState("");
   const [fieldDesc, setFieldDesc] = useState("");
   const [fieldBadge, setFieldBadge] = useState("");
@@ -324,6 +353,7 @@ export default function AdminDashboard({ onShowToast, onMenuUpdated, isDarkMode,
   const [fieldPinnedFeatured, setFieldPinnedFeatured] = useState(false);
   const [fieldSizes, setFieldSizes] = useState<MenuItemSize[] | null>(null);
   const [sizeEditorOpen, setSizeEditorOpen] = useState(false);
+  const [fieldBundleConfig, setFieldBundleConfig] = useState<BundleConfig | undefined>(undefined);
 
   // User Management state
   const [users, setUsers] = useState<any[]>([]);
@@ -380,9 +410,15 @@ export default function AdminDashboard({ onShowToast, onMenuUpdated, isDarkMode,
     } else if (branches && branches.length > 0) {
       branchKeys = branches.filter(b => b.isActive !== false).map(b => b.name);
     } else {
-      // No static outlet fallback — branches come from /api/branches; this
-      // effect re-runs when they load (see deps), or stays empty if API is down.
-      branchKeys = [];
+      // Transient-tolerant fallback: reuse last-good branch names cached from
+      // a previous successful /admin/api/branches load so the dashboard
+      // doesn't go blank when that single request blips. No mock data.
+      try {
+        const cached = JSON.parse(localStorage.getItem("pc_branches_cache") || "[]");
+        branchKeys = Array.isArray(cached) ? cached.filter((n) => typeof n === "string") : [];
+      } catch {
+        branchKeys = [];
+      }
     }
     const results: Record<string, { totalOrders: number; totalRevenue: number; pending: number }> = {};
 
@@ -433,10 +469,33 @@ export default function AdminDashboard({ onShowToast, onMenuUpdated, isDarkMode,
     }
   };
 
+  const loadCategories = async () => {
+    setIsLoadingCategories(true);
+    try {
+      const res = await fetch("/admin/api/categories", {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setCategories(data);
+      } else {
+        const publicRes = await fetch("/api/categories");
+        if (publicRes.ok) {
+          const publicData = await publicRes.json();
+          setCategories(publicData);
+        }
+      }
+    } catch (err) {
+      console.warn("Error loading categories:", err);
+    } finally {
+      setIsLoadingCategories(false);
+    }
+  };
+
   const loadMenu = async () => {
     setIsLoadingMenu(true);
     try {
-      const res = await fetch("/api/menu");
+      const res = await fetch(`/api/menu?t=${Date.now()}`);
       if (res.ok) {
         const data = await res.json();
         setMenuItems(data);
@@ -520,21 +579,44 @@ export default function AdminDashboard({ onShowToast, onMenuUpdated, isDarkMode,
     }
   };
 
+  // Transient-tolerant loader: 2 attempts, 12s timeout, keeps last-good
+  // data on failure instead of blanking the tab (M0 cold-start / proxy blip).
+  const fetchWithRetry = async (url: string, init?: RequestInit, retries = 1): Promise<Response> => {
+    let lastErr: any;
+    for (let attempt = 0; attempt <= retries; attempt++) {
+      try {
+        const res = await fetch(url, {
+          ...init,
+          signal: AbortSignal.timeout(12000),
+        });
+        if (res.ok) return res;
+        lastErr = new Error(`HTTP ${res.status}`);
+        // Don't retry auth errors — token is wrong, not the network.
+        if (res.status === 401 || res.status === 403) throw lastErr;
+      } catch (err: any) {
+        lastErr = err;
+        if (err?.message?.startsWith("HTTP 401") || err?.message?.startsWith("HTTP 403")) throw err;
+      }
+      if (attempt < retries) await new Promise((r) => setTimeout(r, 1500));
+    }
+    throw lastErr;
+  };
+
   const loadPromos = async () => {
     setIsLoadingPromos(true);
-    
+    setPromosError(false);
+
     try {
-      const res = await fetch("/admin/api/promos", {
+      const res = await fetchWithRetry("/admin/api/promos", {
         headers: { Authorization: `Bearer ${token}` }
       });
-      if (res.ok) {
-        const data = await res.json();
-        setPromos(data);
-      } else {
-        onShowToast("❌ Failed to load promo codes from database.");
-      }
+      const data = await res.json();
+      setPromos(data);
     } catch (err) {
-      onShowToast("❌ Network error loading promo codes.");
+      // Keep previously loaded promos visible; flag error so the tab
+      // offers a Retry button instead of a misleading "no codes" state.
+      setPromosError(true);
+      if (promos.length === 0) onShowToast("❌ Promo codes temporarily unavailable — tap Retry.");
     } finally {
       setIsLoadingPromos(false);
     }
@@ -659,29 +741,31 @@ export default function AdminDashboard({ onShowToast, onMenuUpdated, isDarkMode,
 
   const loadBranches = async () => {
     setIsLoadingBranches(true);
-    
+    setBranchesError(false);
+
     try {
-      const res = await fetch("/admin/api/branches", {
+      const res = await fetchWithRetry("/admin/api/branches", {
         headers: { Authorization: `Bearer ${token}` }
       });
-      if (res.ok) {
-        const data = await res.json();
-        setBranches(data);
-        
-        // Broadcast and dispatch for real-time synchronization
-        try {
-          const bc = new BroadcastChannel("pizza_city_menu_channel");
-          bc.postMessage({ type: "BRANCHES_UPDATED", branches: data });
-          bc.close();
-        } catch (e) {
-          // sandbox safe fallback
-        }
-        window.dispatchEvent(new CustomEvent("pizza_city_branches_updated", { detail: data }));
-      } else {
-        onShowToast("❌ Failed to load branches from database.");
+      const data = await res.json();
+      setBranches(data);
+      try {
+        localStorage.setItem("pc_branches_cache", JSON.stringify(data.map((b: any) => b.name)));
+      } catch { /* storage full/blocked — non-fatal */ }
+
+      // Broadcast and dispatch for real-time synchronization
+      try {
+        const bc = new BroadcastChannel("pizza_city_menu_channel");
+        bc.postMessage({ type: "BRANCHES_UPDATED", branches: data });
+        bc.close();
+      } catch (e) {
+        // sandbox safe fallback
       }
+      window.dispatchEvent(new CustomEvent("pizza_city_branches_updated", { detail: data }));
     } catch (err) {
-      onShowToast("❌ Network error loading branches.");
+      // Keep previously loaded branches visible on transient failure.
+      setBranchesError(true);
+      if (branches.length === 0) onShowToast("❌ Locations temporarily unavailable — tap Retry.");
     } finally {
       setIsLoadingBranches(false);
     }
@@ -996,6 +1080,7 @@ export default function AdminDashboard({ onShowToast, onMenuUpdated, isDarkMode,
 
   useEffect(() => {
     if (isAuthenticated) {
+      loadCategories();
       loadMenu();
       loadBanners();
       loadPromos();
@@ -1198,7 +1283,8 @@ export default function AdminDashboard({ onShowToast, onMenuUpdated, isDarkMode,
       onShowToast(`🔄 Order listing for "${selectedOutlet}" synced.`);
     } else if (activeTab === "menu") {
       loadMenu();
-      onShowToast("🔄 Menu catalog synchronized.");
+      loadCategories();
+      onShowToast("🔄 Menu catalog & categories synchronized.");
     } else if (activeTab === "banners") {
       loadBanners();
       onShowToast("🔄 Banner configurations synchronized.");
@@ -1208,6 +1294,206 @@ export default function AdminDashboard({ onShowToast, onMenuUpdated, isDarkMode,
     } else if (activeTab === "branches") {
       loadBranches();
       onShowToast("🔄 Branches database listings synchronized.");
+    }
+  };
+
+  const openCategoryModal = (cat: Category | null) => {
+    setEditingCategory(cat);
+    if (cat) {
+      setCatName(cat.name);
+      setCatSlug(cat.slug);
+      setCatDesc(cat.description || "");
+      setCatImage(cat.image || "");
+      setCatDisplayOrder(cat.displayOrder !== undefined ? cat.displayOrder.toString() : "");
+      setCatActive(cat.active !== false);
+      setCatShowOnMenu(cat.showOnMenu !== false);
+      setCatSeoTitle(cat.seoTitle || "");
+      setCatSeoDesc(cat.seoDescription || "");
+    } else {
+      setCatName("");
+      setCatSlug("");
+      setCatDesc("");
+      setCatImage("");
+      setCatDisplayOrder((categories.length + 1).toString());
+      setCatActive(true);
+      setCatShowOnMenu(true);
+      setCatSeoTitle("");
+      setCatSeoDesc("");
+    }
+    setIsCategoryModalOpen(true);
+  };
+
+  const handleSaveCategory = async () => {
+    if (!catName.trim()) {
+      onShowToast("⚠️ Category Name is a required field.");
+      return;
+    }
+
+    const payload = {
+      name: catName.trim(),
+      slug: catSlug.trim() || catName.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, ""),
+      description: catDesc.trim(),
+      image: catImage.trim(),
+      displayOrder: catDisplayOrder ? parseInt(catDisplayOrder, 10) : undefined,
+      active: catActive,
+      showOnMenu: catShowOnMenu,
+      seoTitle: catSeoTitle.trim(),
+      seoDescription: catSeoDesc.trim(),
+    };
+
+    try {
+      let res;
+      if (editingCategory) {
+        res = await fetch(`/admin/api/categories/${editingCategory._id}`, {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify(payload),
+        });
+      } else {
+        res = await fetch(`/admin/api/categories`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify(payload),
+        });
+      }
+
+      if (res.ok) {
+        onShowToast(editingCategory ? `✅ Category "${payload.name}" updated!` : `✅ Category "${payload.name}" created!`);
+        setIsCategoryModalOpen(false);
+        loadCategories();
+        loadMenu();
+      } else {
+        const errData = await res.json().catch(() => ({}));
+        onShowToast(`❌ Failed to save category: ${errData.error || res.statusText}`);
+      }
+    } catch (err) {
+      onShowToast("❌ Database connection error saving category.");
+    }
+  };
+
+  const handleToggleCategoryActive = async (id: string, currentActive: boolean) => {
+    try {
+      const res = await fetch(`/admin/api/categories/${id}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ active: !currentActive }),
+      });
+      if (res.ok) {
+        onShowToast("⚡ Category visibility toggled.");
+        loadCategories();
+        loadMenu();
+      } else {
+        onShowToast("❌ Failed to toggle category status.");
+      }
+    } catch (err) {
+      onShowToast("❌ Connection error.");
+    }
+  };
+
+  const handleDeleteCategory = async (id: string, name: string) => {
+    const matchingItems = menuItems.filter(m => m.categoryId === id || m.category === name.toLowerCase());
+    const warning = matchingItems.length > 0
+      ? `Warning: There are ${matchingItems.length} menu items in this category. Are you sure you want to delete "${name}"?`
+      : `Are you sure you want to permanently delete category "${name}"?`;
+
+    if (!confirm(warning)) return;
+
+    try {
+      const res = await fetch(`/admin/api/categories/${id}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        onShowToast(`🗑️ Category "${name}" deleted.`);
+        loadCategories();
+        loadMenu();
+      } else {
+        const errData = await res.json().catch(() => ({}));
+        onShowToast(`❌ Deletion rejected: ${errData.error || res.statusText}`);
+      }
+    } catch (err) {
+      onShowToast("❌ Connection error deleting category.");
+    }
+  };
+
+  const handleReorderCategory = async (index: number, direction: "up" | "down") => {
+    const targetIndex = direction === "up" ? index - 1 : index + 1;
+    if (targetIndex < 0 || targetIndex >= categories.length) return;
+
+    const newCategories = [...categories];
+    const [moved] = newCategories.splice(index, 1);
+    newCategories.splice(targetIndex, 0, moved);
+
+    const reorderedPayload = newCategories.map((cat, i) => ({
+      id: cat._id,
+      displayOrder: i + 1,
+    }));
+
+    setCategories(newCategories.map((c, i) => ({ ...c, displayOrder: i + 1 })));
+
+    try {
+      const res = await fetch("/admin/api/categories/reorder", {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ categories: reorderedPayload }),
+      });
+      if (res.ok) {
+        onShowToast("✅ Category order updated!");
+        loadCategories();
+      } else {
+        onShowToast("❌ Failed to save new category order.");
+        loadCategories();
+      }
+    } catch (err) {
+      onShowToast("❌ Network error saving order.");
+      loadCategories();
+    }
+  };
+
+  const handleReorderMenuItem = async (item: MenuItem, direction: "up" | "down") => {
+    const relevantItems = filteredMenuItems;
+    const currentIndex = relevantItems.findIndex(m => m._id === item._id);
+    const targetIndex = direction === "up" ? currentIndex - 1 : currentIndex + 1;
+    if (targetIndex < 0 || targetIndex >= relevantItems.length) return;
+
+    const newItems = [...relevantItems];
+    const [moved] = newItems.splice(currentIndex, 1);
+    newItems.splice(targetIndex, 0, moved);
+
+    const itemsPayload = newItems.map((m, idx) => ({
+      id: m._id,
+      displayOrder: idx + 1,
+    }));
+
+    try {
+      const res = await fetch("/admin/api/menu/reorder", {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ items: itemsPayload }),
+      });
+      if (res.ok) {
+        onShowToast("✅ Menu items reordered!");
+        loadMenu();
+      } else {
+        onShowToast("❌ Failed to reorder menu items.");
+      }
+    } catch (err) {
+      onShowToast("❌ Network error reordering menu items.");
     }
   };
 
@@ -1231,10 +1517,16 @@ export default function AdminDashboard({ onShowToast, onMenuUpdated, isDarkMode,
       }
     }
 
+    const matchedCategory = categories.find(c => c._id === fieldCategoryId || c.slug === fieldCategory);
+    const finalCategorySlug = matchedCategory ? matchedCategory.slug : fieldCategory;
+    const finalCategoryId = matchedCategory ? matchedCategory._id : (fieldCategoryId || undefined);
+
     const payload = {
       name: fieldName.trim(),
       price: parsedPrice,
-      category: fieldCategory,
+      category: finalCategorySlug,
+      categoryId: finalCategoryId,
+      displayOrder: fieldDisplayOrder ? parseInt(fieldDisplayOrder, 10) : undefined,
       subCategory: fieldSubcat.trim(),
       description: fieldDesc.trim(),
       badge: fieldBadge,
@@ -1246,6 +1538,7 @@ export default function AdminDashboard({ onShowToast, onMenuUpdated, isDarkMode,
       discountPrice: fieldDiscountPrice ? parseFloat(fieldDiscountPrice) : 0,
       discountPercentage: fieldDiscountPercentage ? parseFloat(fieldDiscountPercentage) : 0,
       sizes: fieldSizes,
+      bundleConfig: fieldBundleConfig && fieldBundleConfig.enabled ? fieldBundleConfig : { enabled: false, groups: [] },
     };
 
     try {
@@ -1259,11 +1552,16 @@ export default function AdminDashboard({ onShowToast, onMenuUpdated, isDarkMode,
           body: JSON.stringify(payload),
         });
         if (res.ok) {
+          const data = await res.json().catch(() => ({}));
           onShowToast(`✅ Updated "${fieldName}" successfully!`);
           setIsMenuModalOpen(false);
+          if (data.item) {
+            setMenuItems((prev) => prev.map((m) => (m._id === data.item._id ? data.item : m)));
+          }
           loadMenu();
         } else {
-          onShowToast("❌ Failed to update menu item.");
+          const errData = await res.json().catch(() => ({}));
+          onShowToast(`❌ Failed to update menu item: ${errData.error || res.statusText}`);
         }
       } else {
         const res = await fetch(`/admin/api/menu`, {
@@ -1275,11 +1573,16 @@ export default function AdminDashboard({ onShowToast, onMenuUpdated, isDarkMode,
           body: JSON.stringify(payload),
         });
         if (res.ok) {
+          const data = await res.json().catch(() => ({}));
           onShowToast(`✅ Added "${fieldName}" to catalog!`);
           setIsMenuModalOpen(false);
+          if (data.item) {
+            setMenuItems((prev) => [...prev, data.item]);
+          }
           loadMenu();
         } else {
-          onShowToast("❌ Failed to add menu item.");
+          const errData = await res.json().catch(() => ({}));
+          onShowToast(`❌ Failed to add menu item: ${errData.error || res.statusText}`);
         }
       }
     } catch (err) {
@@ -1367,6 +1670,8 @@ export default function AdminDashboard({ onShowToast, onMenuUpdated, isDarkMode,
       setFieldName(item.name);
       setFieldPrice(item.price.toString());
       setFieldCategory(item.category);
+      setFieldCategoryId(item.categoryId || "");
+      setFieldDisplayOrder(item.displayOrder !== undefined ? item.displayOrder.toString() : "");
       setFieldSubcat((item as any).subCategory || "");
       setFieldDesc(item.description || "");
       setFieldBadge((item as any).badge || "");
@@ -1378,10 +1683,14 @@ export default function AdminDashboard({ onShowToast, onMenuUpdated, isDarkMode,
       setFieldDiscountPrice((item as any).discountPrice ? (item as any).discountPrice.toString() : "");
       setFieldDiscountPercentage((item as any).discountPercentage ? (item as any).discountPercentage.toString() : "");
       setFieldSizes(item.sizes || getDefaultSizes(item.category));
+      setFieldBundleConfig(item.bundleConfig ? JSON.parse(JSON.stringify(item.bundleConfig)) : undefined);
     } else {
+      const defaultCat = categories[0] || { _id: "", slug: "pizza" };
       setFieldName("");
       setFieldPrice("");
-      setFieldCategory("pizza");
+      setFieldCategory(defaultCat.slug || "pizza");
+      setFieldCategoryId(defaultCat._id || "");
+      setFieldDisplayOrder("");
       setFieldSubcat("");
       setFieldDesc("");
       setFieldBadge("");
@@ -1392,7 +1701,8 @@ export default function AdminDashboard({ onShowToast, onMenuUpdated, isDarkMode,
       setFieldPinnedFeatured(false);
       setFieldDiscountPrice("");
       setFieldDiscountPercentage("");
-      setFieldSizes(getDefaultSizes("pizza"));
+      setFieldSizes(getDefaultSizes(defaultCat.slug || "pizza"));
+      setFieldBundleConfig(undefined);
     }
     setSizeEditorOpen(false);
     setIsMenuModalOpen(true);
@@ -1461,7 +1771,7 @@ export default function AdminDashboard({ onShowToast, onMenuUpdated, isDarkMode,
           <div className="w-full max-w-md bg-white p-8 rounded-3xl border border-[var(--pc-red-500)]/15 shadow-xl">
             <div className="text-center space-y-3 mb-8">
               <img
-                src="https://res.cloudinary.com/dc6pr0lxh/image/upload/v1784579858/PizzaCity-Logo_zgzbps.png"
+                src="/logo.png"
                 alt="Pizza City Oman"
                 className="w-28 mx-auto"
               />
@@ -2156,14 +2466,26 @@ export default function AdminDashboard({ onShowToast, onMenuUpdated, isDarkMode,
                                   </span>
                                   <div className="space-y-1.5 scrollbar-thin max-h-32 overflow-y-auto">
                                     {order.items.map((item, id) => (
-                                      <div key={id} className="flex justify-between items-center text-xs text-[var(--pc-gray-600)]">
-                                        <span>
-                                          <strong className="text-[var(--pc-red-500)] font-bold mr-1">{item.quantity}x</strong>
-                                          {item.name}
-                                        </span>
-                                        <span className="font-mono font-bold text-[var(--pc-gray-700)]">
-                                          OMR {(item.price * item.quantity).toFixed(2)}
-                                        </span>
+                                      <div key={id} className="text-xs text-[var(--pc-gray-600)]">
+                                        <div className="flex justify-between items-center">
+                                          <span>
+                                            <strong className="text-[var(--pc-red-500)] font-bold mr-1">{item.quantity}x</strong>
+                                            {item.name}
+                                          </span>
+                                          <span className="font-mono font-bold text-[var(--pc-gray-700)]">
+                                            OMR {(item.price * item.quantity).toFixed(2)}
+                                          </span>
+                                        </div>
+                                        {item.bundleSelections && item.bundleSelections.length > 0 && (
+                                          <div className="pl-3 py-1 space-y-0.5 border-l-2 border-[var(--pc-amber-400)]/60 ml-1.5 my-1">
+                                            {item.bundleSelections.map((grp, gIdx) => (
+                                              <div key={gIdx} className="text-[10px] text-[var(--pc-gray-500)]">
+                                                <span className="font-black text-[var(--pc-gray-700)]">{grp.groupTitle}:</span>{" "}
+                                                {grp.items.map(opt => `${opt.quantity && opt.quantity > 1 ? `${opt.quantity}x ` : ""}${opt.name}`).join(", ")}
+                                              </div>
+                                            ))}
+                                          </div>
+                                        )}
                                       </div>
                                     ))}
                                   </div>
@@ -2264,13 +2586,23 @@ export default function AdminDashboard({ onShowToast, onMenuUpdated, isDarkMode,
                       />
                     </div>
 
-                    <button
-                      onClick={() => openEditModal(null)}
-                      className="px-5 py-2.5 bg-gradient-to-r from-[var(--pc-red-500)] to-[var(--pc-amber-400)] text-white rounded-full font-black text-xs shadow-md shadow-[var(--pc-red-500)]/20 flex items-center justify-center gap-1.5 self-start sm:self-center cursor-pointer hover:scale-[1.02] active:scale-[0.98] transition-all"
-                    >
-                      <Plus size={14} />
-                      Add Recipe Item
-                    </button>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        onClick={() => setIsCategoryManagerOpen(true)}
+                        className="px-4 py-2.5 bg-white border border-gray-200 hover:border-[var(--pc-red-500)] text-[var(--pc-gray-700)] rounded-full font-bold text-xs shadow-sm flex items-center justify-center gap-1.5 cursor-pointer hover:bg-gray-50 transition-all"
+                      >
+                        <Layers size={14} className="text-[var(--pc-red-500)]" />
+                        Manage Categories ({categories.length})
+                      </button>
+
+                      <button
+                        onClick={() => openEditModal(null)}
+                        className="px-5 py-2.5 bg-gradient-to-r from-[var(--pc-red-500)] to-[var(--pc-amber-400)] text-white rounded-full font-black text-xs shadow-md shadow-[var(--pc-red-500)]/20 flex items-center justify-center gap-1.5 self-start sm:self-center cursor-pointer hover:scale-[1.02] active:scale-[0.98] transition-all"
+                      >
+                        <Plus size={14} />
+                        Add Recipe Item
+                      </button>
+                    </div>
                   </div>
 
                   {/* Category Pills filtering */}
@@ -2278,16 +2610,20 @@ export default function AdminDashboard({ onShowToast, onMenuUpdated, isDarkMode,
                     {[
                       { key: "all", label: "Entire Catalog" },
                       { key: "featured", label: "⭐ Featured" },
-                      { key: "pizza", label: "Sourdough Pizzas" },
-                      { key: "sides", label: "Fired Sides" },
-                      { key: "drinks", label: "Chilled Drinks" },
-                      { key: "dessert", label: "Dessert Pies" },
-                      { key: "combo", label: "Combo Deals" },
+                      ...(categories.length > 0
+                        ? categories.map((c) => ({ key: c.slug, label: c.name }))
+                        : [
+                            { key: "pizza", label: "Sourdough Pizzas" },
+                            { key: "sides", label: "Fired Sides" },
+                            { key: "drinks", label: "Chilled Drinks" },
+                            { key: "dessert", label: "Dessert Pies" },
+                            { key: "combo", label: "Combo Deals" },
+                          ]),
                     ].map((item) => (
                       <button
                         key={item.key}
                         onClick={() => setMenuFilter(item.key)}
-                        className={`px-4 py-2 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
+                        className={`px-4 py-2 rounded-xl text-xs font-bold border transition-all cursor-pointer whitespace-nowrap ${
                           menuFilter === item.key
                             ? "bg-[var(--pc-red-500)] text-white border-transparent"
                             : "bg-white text-gray-500 border-gray-100 hover:bg-[var(--pc-gray-100)]/65"
@@ -2327,14 +2663,22 @@ export default function AdminDashboard({ onShowToast, onMenuUpdated, isDarkMode,
                                 src={item.image || FALLBACK_FOOD_IMAGE} 
                                 alt={getMenuItemAltText(item)}
                                 className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                                onError={(e) => { const el = e.currentTarget; if (el.src !== FALLBACK_FOOD_IMAGE) el.src = FALLBACK_FOOD_IMAGE; }}
                               />
                               
                               {/* Overlay Presets Badge */}
-                              {((item as any).badge || (item as any).featured) && (
-                                <span className="absolute top-3 left-3 bg-white/95 text-[var(--pc-gray-700)] text-[9px] font-black uppercase tracking-widest px-2.5 py-1 rounded-full shadow-sm">
-                                  {(item as any).featured ? "⭐ Featured" : (item as any).badge}
-                                </span>
-                              )}
+                              <div className="absolute top-3 left-3 flex flex-col gap-1 items-start">
+                                {((item as any).badge || (item as any).featured) && (
+                                  <span className="bg-white/95 text-[var(--pc-gray-700)] text-[9px] font-black uppercase tracking-widest px-2.5 py-1 rounded-full shadow-sm">
+                                    {(item as any).featured ? "⭐ Featured" : (item as any).badge}
+                                  </span>
+                                )}
+                                {item.bundleConfig?.enabled && (
+                                  <span className="bg-gradient-to-r from-[var(--pc-red-500)] to-[var(--pc-amber-400)] text-white text-[9px] font-black uppercase tracking-widest px-2.5 py-1 rounded-full shadow-sm">
+                                    🎁 Bundle ({item.bundleConfig.groups?.length || 0})
+                                  </span>
+                                )}
+                              </div>
 
                               {/* Live Availability Toggle Switch button Overlay */}
                               <button
@@ -2366,24 +2710,45 @@ export default function AdminDashboard({ onShowToast, onMenuUpdated, isDarkMode,
                               </div>
 
                               <div className="pt-3 border-t border-gray-100 flex items-center justify-between">
-                                <span className="font-playfair font-black text-base text-[var(--pc-red-500)]">
-                                  OMR {item.price.toFixed(3)}
-                                </span>
-                                
                                 <div className="flex items-center gap-1.5">
+                                  <span className="font-playfair font-black text-base text-[var(--pc-red-500)]">
+                                    OMR {item.price.toFixed(3)}
+                                  </span>
+                                  {item.displayOrder !== undefined && (
+                                    <span className="text-[9px] font-bold text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded" title="Display Order">
+                                      #{item.displayOrder}
+                                    </span>
+                                  )}
+                                </div>
+                                
+                                <div className="flex items-center gap-1">
+                                  <button
+                                    onClick={() => handleReorderMenuItem(item, "up")}
+                                    className="p-1.5 bg-gray-50 text-gray-600 hover:bg-gray-100 rounded-lg border border-gray-200 transition-all cursor-pointer"
+                                    title="Move Up in order"
+                                  >
+                                    <ArrowUp size={11} />
+                                  </button>
+                                  <button
+                                    onClick={() => handleReorderMenuItem(item, "down")}
+                                    className="p-1.5 bg-gray-50 text-gray-600 hover:bg-gray-100 rounded-lg border border-gray-200 transition-all cursor-pointer"
+                                    title="Move Down in order"
+                                  >
+                                    <ArrowDown size={11} />
+                                  </button>
                                   <button
                                     onClick={() => openEditModal(item)}
                                     className="p-1.5 bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-lg border border-blue-200/50 transition-all cursor-pointer"
                                     title="Edit Recipe details"
                                   >
-                                    <Edit2 size={13} />
+                                    <Edit2 size={12} />
                                   </button>
                                   <button
                                     onClick={() => handleDeleteMenuItem(item._id, item.name)}
                                     className="p-1.5 bg-red-50 text-red-700 hover:bg-red-100 rounded-lg border border-red-200/55 transition-all cursor-pointer"
                                     title="Delete product"
                                   >
-                                    <Trash2 size={13} />
+                                    <Trash2 size={12} />
                                   </button>
                                 </div>
                               </div>
@@ -2559,14 +2924,24 @@ export default function AdminDashboard({ onShowToast, onMenuUpdated, isDarkMode,
                     </div>
                   ) : promos.length === 0 ? (
                     <div className="bg-white rounded-3xl border border-dashed border-gray-200 p-12 text-center space-y-3">
-                      <p className="text-sm font-bold text-[var(--pc-gray-600)]">No promotional discount codes found.</p>
-                      <p className="text-xs text-[var(--pc-gray-500)]">Create one to boost sales and public retention on the main Pizza City checkout screens!</p>
-                      <button
-                        onClick={() => openPromoModal(null)}
-                        className="px-4 py-2 bg-gradient-to-r from-[var(--pc-red-500)]/90 to-[var(--pc-amber-400)]/90 text-white text-[11px] font-black rounded-lg mx-auto cursor-pointer"
-                      >
-                        Create Your First Code
-                      </button>
+                      <p className="text-sm font-bold text-[var(--pc-gray-600)]">{promosError ? "Couldn't reach the database just now." : "No promotional discount codes found."}</p>
+                      <p className="text-xs text-[var(--pc-gray-500)]">{promosError ? "Your codes are safe — this is usually a 2-second connection blip. Retry to reload." : "Create one to boost sales and public retention on the main Pizza City checkout screens!"}</p>
+                      <div className="flex items-center justify-center gap-2">
+                        {promosError && (
+                          <button
+                            onClick={() => loadPromos()}
+                            className="px-4 py-2 bg-white border border-gray-200 text-[11px] font-black rounded-lg cursor-pointer"
+                          >
+                            🔄 Retry
+                          </button>
+                        )}
+                        <button
+                          onClick={() => openPromoModal(null)}
+                          className="px-4 py-2 bg-gradient-to-r from-[var(--pc-red-500)]/90 to-[var(--pc-amber-400)]/90 text-white text-[11px] font-black rounded-lg cursor-pointer"
+                        >
+                          Create Your First Code
+                        </button>
+                      </div>
                     </div>
                   ) : (
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
@@ -2664,14 +3039,24 @@ export default function AdminDashboard({ onShowToast, onMenuUpdated, isDarkMode,
                     </div>
                   ) : branches.length === 0 ? (
                     <div className="bg-white rounded-3xl border border-dashed border-gray-200 p-12 text-center space-y-3">
-                      <p className="text-sm font-bold text-[var(--pc-gray-600)]">No physical branches found in your store database.</p>
-                      <p className="text-xs text-[var(--pc-gray-500)]">Add a store location so users can view outlet locations, make orders, and lookup WhatsApp support channels.</p>
-                      <button
-                        onClick={() => openBranchModal(null)}
-                        className="px-4 py-2 bg-gradient-to-r from-[var(--pc-red-500)]/90 to-[var(--pc-amber-400)]/90 text-white text-[11px] font-black rounded-lg mx-auto cursor-pointer"
-                      >
-                        Create Your First Branch
-                      </button>
+                      <p className="text-sm font-bold text-[var(--pc-gray-600)]">{branchesError ? "Couldn't reach the database just now." : "No physical branches found in your store database."}</p>
+                      <p className="text-xs text-[var(--pc-gray-500)]">{branchesError ? "Your locations are safe — this is usually a 2-second connection blip. Retry to reload." : "Add a store location so users can view outlet locations, make orders, and lookup WhatsApp support channels."}</p>
+                      <div className="flex items-center justify-center gap-2">
+                        {branchesError && (
+                          <button
+                            onClick={() => loadBranches()}
+                            className="px-4 py-2 bg-white border border-gray-200 text-[11px] font-black rounded-lg cursor-pointer"
+                          >
+                            🔄 Retry
+                          </button>
+                        )}
+                        <button
+                          onClick={() => openBranchModal(null)}
+                          className="px-4 py-2 bg-gradient-to-r from-[var(--pc-red-500)]/90 to-[var(--pc-amber-400)]/90 text-white text-[11px] font-black rounded-lg cursor-pointer"
+                        >
+                          Create Your First Branch
+                        </button>
+                      </div>
                     </div>
                   ) : (
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
@@ -2979,19 +3364,37 @@ export default function AdminDashboard({ onShowToast, onMenuUpdated, isDarkMode,
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <div className="sm:col-span-1">
                       <label className="block text-[10px] uppercase font-black tracking-wider text-[var(--pc-gray-500)] mb-2">Category *</label>
                       <select 
-                        value={fieldCategory}
-                        onChange={(e) => setFieldCategory(e.target.value)}
+                        value={fieldCategoryId || fieldCategory}
+                        onChange={(e) => {
+                          const selected = categories.find(c => c._id === e.target.value || c.slug === e.target.value);
+                          if (selected) {
+                            setFieldCategoryId(selected._id);
+                            setFieldCategory(selected.slug);
+                          } else {
+                            setFieldCategory(e.target.value);
+                          }
+                        }}
                         className="w-full bg-[var(--pc-gray-100)] border border-[var(--pc-red-500)]/20 rounded-xl px-4 py-2.5 text-xs focus:outline-none focus:border-[var(--pc-amber-400)] cursor-pointer"
                       >
-                        <option value="pizza">Pizza</option>
-                        <option value="sides">Sides</option>
-                        <option value="drinks">Drinks</option>
-                        <option value="dessert">Dessert</option>
-                        <option value="combo">Combo Deals</option>
+                        {categories.length > 0 ? (
+                          categories.map((c) => (
+                            <option key={c._id} value={c._id}>
+                              {c.name} ({c.slug})
+                            </option>
+                          ))
+                        ) : (
+                          <>
+                            <option value="pizza">Pizza</option>
+                            <option value="sides">Sides</option>
+                            <option value="drinks">Drinks</option>
+                            <option value="dessert">Dessert</option>
+                            <option value="combo">Combo Deals</option>
+                          </>
+                        )}
                       </select>
                     </div>
                     <div>
@@ -3001,6 +3404,17 @@ export default function AdminDashboard({ onShowToast, onMenuUpdated, isDarkMode,
                         value={fieldSubcat}
                         onChange={(e) => setFieldSubcat(e.target.value)}
                         placeholder="e.g., Spicy Pizza"
+                        className="w-full bg-[var(--pc-gray-100)] border border-[var(--pc-red-500)]/20 rounded-xl px-4 py-2.5 text-xs focus:outline-none focus:border-[var(--pc-amber-400)]"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] uppercase font-black tracking-wider text-[var(--pc-gray-500)] mb-2">Display Order</label>
+                      <input 
+                        type="number"
+                        min="1"
+                        value={fieldDisplayOrder}
+                        onChange={(e) => setFieldDisplayOrder(e.target.value)}
+                        placeholder="e.g., 1, 2, 3..."
                         className="w-full bg-[var(--pc-gray-100)] border border-[var(--pc-red-500)]/20 rounded-xl px-4 py-2.5 text-xs focus:outline-none focus:border-[var(--pc-amber-400)]"
                       />
                     </div>
@@ -3172,6 +3586,13 @@ export default function AdminDashboard({ onShowToast, onMenuUpdated, isDarkMode,
                     )}
                   </div>
 
+                  {/* Bundle Configuration Editor */}
+                  <BundleConfigEditor
+                    bundleConfig={fieldBundleConfig}
+                    onChange={setFieldBundleConfig}
+                    menuItems={menuItems}
+                  />
+
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
                       <label className="block text-[10px] uppercase font-black tracking-wider text-[var(--pc-gray-500)] mb-2">Badge Custom Tag</label>
@@ -3195,6 +3616,7 @@ export default function AdminDashboard({ onShowToast, onMenuUpdated, isDarkMode,
                         onShowToast={onShowToast}
                         token={token}
                         label="Recipe Image"
+                        uploadType="menu"
                       />
                       </div>
                       <div>
@@ -3360,6 +3782,7 @@ export default function AdminDashboard({ onShowToast, onMenuUpdated, isDarkMode,
                       onShowToast={onShowToast}
                       token={token}
                       label="Promotion Background Image"
+                      uploadType="banner"
                     />
                   </div>
 
@@ -3682,6 +4105,7 @@ export default function AdminDashboard({ onShowToast, onMenuUpdated, isDarkMode,
                       onShowToast={onShowToast}
                       token={token}
                       label="Branch Optional Image Cover"
+                      uploadType="branch"
                     />
                   </div>
 
@@ -3853,6 +4277,279 @@ export default function AdminDashboard({ onShowToast, onMenuUpdated, isDarkMode,
                     className="px-6 py-2.5 bg-gradient-to-r from-[var(--pc-red-500)] to-[var(--pc-amber-400)] text-white rounded-full text-xs font-black shadow-md shadow-[var(--pc-red-500)]/15 hover:scale-[1.02] active:scale-[0.98] transition-all cursor-pointer"
                   >
                     {editingUser ? "Save Changes" : "Create User"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ==================== CATEGORY MANAGER LIST MODAL ==================== */}
+          {isCategoryManagerOpen && (
+            <div className="fixed inset-0 bg-[var(--pc-gray-700)]/55 backdrop-blur-xs z-50 flex items-center justify-center p-4 text-left">
+              <div className="w-full max-w-2xl bg-white rounded-3xl border border-[var(--pc-red-500)]/10 p-6 md:p-8 space-y-6 shadow-2xl relative animate-scaleUp max-h-[90vh] overflow-y-auto">
+                <button
+                  onClick={() => setIsCategoryManagerOpen(false)}
+                  className="absolute top-4 right-4 text-gray-400 hover:text-[var(--pc-gray-700)] p-1.5 hover:bg-gray-100 rounded-full transition-all cursor-pointer"
+                >
+                  <CloseIcon size={18} />
+                </button>
+
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <h3 className="font-playfair font-black text-xl text-[var(--pc-gray-700)] flex items-center gap-2">
+                      <Layers className="text-[var(--pc-red-500)]" size={20} />
+                      Menu Categories
+                    </h3>
+                    <p className="text-xs text-[var(--pc-gray-500)]">Manage category ordering, visibility, and category-level SEO.</p>
+                  </div>
+                  <button
+                    onClick={() => openCategoryModal(null)}
+                    className="px-4 py-2 bg-gradient-to-r from-[var(--pc-red-500)] to-[var(--pc-amber-400)] text-white rounded-full text-xs font-black shadow-md shadow-[var(--pc-red-500)]/15 hover:scale-[1.02] active:scale-[0.98] transition-all cursor-pointer flex items-center gap-1"
+                  >
+                    <Plus size={13} />
+                    New Category
+                  </button>
+                </div>
+
+                {isLoadingCategories ? (
+                  <div className="flex flex-col items-center justify-center py-12 space-y-3">
+                    <RefreshCw size={24} className="animate-spin text-[var(--pc-red-500)]" />
+                    <p className="text-xs font-bold text-gray-500">Loading categories...</p>
+                  </div>
+                ) : categories.length === 0 ? (
+                  <div className="p-8 text-center bg-gray-50 rounded-2xl border border-gray-100 space-y-2">
+                    <p className="text-sm font-bold text-gray-600">No categories found.</p>
+                    <p className="text-xs text-gray-400">Click "New Category" to create your first category.</p>
+                  </div>
+                ) : (
+                  <div className="divide-y divide-gray-100 border border-gray-100 rounded-2xl overflow-hidden bg-white shadow-xs">
+                    {categories.map((cat, idx) => {
+                      const itemCount = menuItems.filter(m => m.categoryId === cat._id || m.category === cat.slug).length;
+                      return (
+                        <div key={cat._id} className="p-4 flex items-center justify-between gap-3 hover:bg-gray-50 transition-colors">
+                          <div className="flex items-center gap-3 min-w-0">
+                            <span className="text-xs font-black text-gray-400 bg-gray-100 px-2 py-1 rounded-lg">
+                              #{cat.displayOrder ?? idx + 1}
+                            </span>
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-2">
+                                <h4 className="font-playfair font-black text-sm text-[var(--pc-gray-700)] truncate">
+                                  {cat.name}
+                                </h4>
+                                <span className="text-[10px] font-mono text-gray-400">
+                                  /menu/{cat.slug}
+                                </span>
+                                {cat.active === false && (
+                                  <span className="text-[9px] font-bold bg-red-100 text-red-700 px-1.5 py-0.5 rounded">
+                                    Hidden
+                                  </span>
+                                )}
+                              </div>
+                              <p className="text-[11px] text-gray-400 truncate">
+                                {cat.description || "No description"} • {itemCount} items
+                              </p>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <button
+                              onClick={() => handleReorderCategory(idx, "up")}
+                              disabled={idx === 0}
+                              className="p-1.5 bg-gray-100 hover:bg-gray-200 disabled:opacity-30 disabled:cursor-not-allowed rounded-lg text-gray-600 transition-all cursor-pointer"
+                              title="Move Up"
+                            >
+                              <ArrowUp size={12} />
+                            </button>
+                            <button
+                              onClick={() => handleReorderCategory(idx, "down")}
+                              disabled={idx === categories.length - 1}
+                              className="p-1.5 bg-gray-100 hover:bg-gray-200 disabled:opacity-30 disabled:cursor-not-allowed rounded-lg text-gray-600 transition-all cursor-pointer"
+                              title="Move Down"
+                            >
+                              <ArrowDown size={12} />
+                            </button>
+                            <button
+                              onClick={() => handleToggleCategoryActive(cat._id, cat.active !== false)}
+                              className={`p-1.5 rounded-lg text-white transition-all cursor-pointer ${
+                                cat.active !== false ? "bg-green-600 hover:bg-green-700" : "bg-red-600 hover:bg-red-700"
+                              }`}
+                              title={cat.active !== false ? "Deactivate" : "Activate"}
+                            >
+                              {cat.active !== false ? <Eye size={12} /> : <EyeOff size={12} />}
+                            </button>
+                            <button
+                              onClick={() => openCategoryModal(cat)}
+                              className="p-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-lg border border-blue-200/50 transition-all cursor-pointer"
+                              title="Edit Category"
+                            >
+                              <Edit2 size={12} />
+                            </button>
+                            <button
+                              onClick={() => handleDeleteCategory(cat._id, cat.name)}
+                              className="p-1.5 bg-red-50 hover:bg-red-100 text-red-700 rounded-lg border border-red-200/50 transition-all cursor-pointer"
+                              title="Delete Category"
+                            >
+                              <Trash2 size={12} />
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                <div className="pt-4 border-t border-gray-100 flex justify-end">
+                  <button
+                    onClick={() => setIsCategoryManagerOpen(false)}
+                    className="px-5 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-full text-xs font-bold transition-all cursor-pointer"
+                  >
+                    Done
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ==================== CATEGORY CREATE / EDIT MODAL ==================== */}
+          {isCategoryModalOpen && (
+            <div className="fixed inset-0 bg-[var(--pc-gray-700)]/55 backdrop-blur-xs z-50 flex items-center justify-center p-4 text-left">
+              <div className="w-full max-w-lg bg-white rounded-3xl border border-[var(--pc-red-500)]/10 p-6 md:p-8 space-y-6 shadow-2xl relative animate-scaleUp max-h-[90vh] overflow-y-auto">
+                <button
+                  onClick={() => setIsCategoryModalOpen(false)}
+                  className="absolute top-4 right-4 text-gray-400 hover:text-[var(--pc-gray-700)] p-1.5 hover:bg-gray-100 rounded-full transition-all cursor-pointer"
+                >
+                  <CloseIcon size={18} />
+                </button>
+
+                <div>
+                  <h3 className="font-playfair font-black text-xl text-[var(--pc-gray-700)]">
+                    {editingCategory ? "✏️ Edit Category" : "📁 Create Category"}
+                  </h3>
+                  <p className="text-xs text-[var(--pc-gray-500)]">Configure category metadata, slug, ordering, and SEO.</p>
+                </div>
+
+                <div className="space-y-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-black text-[var(--pc-gray-700)] uppercase block">Category Name *</label>
+                      <input
+                        type="text"
+                        placeholder="e.g. Sourdough Pizzas"
+                        value={catName}
+                        onChange={(e) => {
+                          setCatName(e.target.value);
+                          if (!editingCategory && !catSlug) {
+                            setCatSlug(e.target.value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, ""));
+                          }
+                        }}
+                        className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-xs text-[var(--pc-gray-600)] focus:border-[var(--pc-amber-400)] focus:outline-none font-bold"
+                      />
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-black text-[var(--pc-gray-700)] uppercase block">Slug (URL path)</label>
+                      <input
+                        type="text"
+                        placeholder="e.g. pizza (renders /menu/pizza)"
+                        value={catSlug}
+                        onChange={(e) => setCatSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ""))}
+                        className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-xs text-[var(--pc-gray-600)] focus:border-[var(--pc-amber-400)] focus:outline-none font-mono"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-black text-[var(--pc-gray-700)] uppercase block">Description</label>
+                    <textarea
+                      placeholder="e.g. Authentic hand-stretched sourdough pizzas crafted with organic flour and premium toppings."
+                      value={catDesc}
+                      onChange={(e) => setCatDesc(e.target.value)}
+                      rows={2}
+                      className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-xs text-[var(--pc-gray-600)] focus:border-[var(--pc-amber-400)] focus:outline-none resize-none"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-black text-[var(--pc-gray-700)] uppercase block">Display Order</label>
+                      <input
+                        type="number"
+                        min="1"
+                        value={catDisplayOrder}
+                        onChange={(e) => setCatDisplayOrder(e.target.value)}
+                        placeholder="1"
+                        className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-xs text-[var(--pc-gray-600)] focus:border-[var(--pc-amber-400)] focus:outline-none"
+                      />
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <ImageUploader
+                        id="cat-image-upload"
+                        imageUrl={catImage}
+                        onChange={setCatImage}
+                        onShowToast={onShowToast}
+                        token={token}
+                        label="Category Hero/Icon Image"
+                        uploadType="menu"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="p-4 bg-gray-50 rounded-2xl border border-gray-200 space-y-3">
+                    <h5 className="text-xs font-black text-gray-700 uppercase tracking-wider">SEO Metadata (Optional)</h5>
+                    <div className="space-y-2">
+                      <input
+                        type="text"
+                        placeholder="SEO Meta Title (e.g., Best Sourdough Pizza in Oman | Pizza City)"
+                        value={catSeoTitle}
+                        onChange={(e) => setCatSeoTitle(e.target.value)}
+                        className="w-full bg-white border border-gray-200 rounded-xl px-3 py-2 text-xs text-gray-700 focus:border-[var(--pc-amber-400)] focus:outline-none"
+                      />
+                      <textarea
+                        placeholder="SEO Meta Description (e.g., Explore handcrafted pizzas freshly baked with 48h fermented dough...)"
+                        value={catSeoDesc}
+                        onChange={(e) => setCatSeoDesc(e.target.value)}
+                        rows={2}
+                        className="w-full bg-white border border-gray-200 rounded-xl px-3 py-2 text-xs text-gray-700 focus:border-[var(--pc-amber-400)] focus:outline-none resize-none"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <label className="flex items-center gap-2 p-3 bg-gray-50 rounded-xl border border-gray-200 cursor-pointer select-none">
+                      <input
+                        type="checkbox"
+                        checked={catActive}
+                        onChange={(e) => setCatActive(e.target.checked)}
+                        className="w-4 h-4 rounded text-[var(--pc-red-500)] accent-[var(--pc-red-500)] cursor-pointer"
+                      />
+                      <span className="text-xs font-bold text-gray-700">Active Category</span>
+                    </label>
+
+                    <label className="flex items-center gap-2 p-3 bg-gray-50 rounded-xl border border-gray-200 cursor-pointer select-none">
+                      <input
+                        type="checkbox"
+                        checked={catShowOnMenu}
+                        onChange={(e) => setCatShowOnMenu(e.target.checked)}
+                        className="w-4 h-4 rounded text-[var(--pc-red-500)] accent-[var(--pc-red-500)] cursor-pointer"
+                      />
+                      <span className="text-xs font-bold text-gray-700">Show in Sliders</span>
+                    </label>
+                  </div>
+                </div>
+
+                <div className="pt-4 border-t border-gray-100 flex items-center justify-end gap-3">
+                  <button
+                    onClick={() => setIsCategoryModalOpen(false)}
+                    className="px-5 py-2.5 border border-gray-200 hover:bg-gray-50 text-gray-500 rounded-full text-xs font-bold transition-all cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleSaveCategory}
+                    className="px-6 py-2.5 bg-gradient-to-r from-[var(--pc-red-500)] to-[var(--pc-amber-400)] text-white rounded-full text-xs font-black shadow-md shadow-[var(--pc-red-500)]/15 hover:scale-[1.02] active:scale-[0.98] transition-all cursor-pointer"
+                  >
+                    {editingCategory ? "Save Changes" : "Create Category"}
                   </button>
                 </div>
               </div>

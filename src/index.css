@@ -404,6 +404,56 @@ h4,
   color: #ffedd4 !important;
 }
 
+/* --- Social icon circles — footer & contact page --- */
+.midnight-oven footer .bg-white {
+  background-color: rgba(255, 237, 212, 0.90) !important;
+  border-color: transparent !important;
+}
+
+.midnight-oven footer .bg-white:hover {
+  background-color: var(--pc-amber-400) !important;
+}
+
+/* Contact page social icon circle and card */
+.midnight-oven .bg-\[var\(--pc-red-500\)\]\/10,
+.midnight-oven [class*="bg-[var(--pc-red-500)]"] {
+  background-color: rgba(255, 80, 80, 0.15) !important;
+}
+
+.midnight-oven .group:hover .bg-\[var\(--pc-red-500\)\]\/10,
+.midnight-oven .group:hover [class*="bg-[var(--pc-red-500)]"] {
+  background-color: var(--pc-red-500) !important;
+}
+
+/* Social icon images — invert dark icons for midnight-oven visibility */
+.midnight-oven .social-icon-img {
+  filter: brightness(0) invert(1) !important;
+  opacity: 0.85;
+}
+
+.midnight-oven .social-card {
+  border-color: rgba(255, 85, 34, 0.20) !important;
+}
+
+.midnight-oven .social-card:hover {
+  border-color: rgba(255, 80, 80, 0.40) !important;
+  background-color: rgba(255, 80, 80, 0.06) !important;
+}
+
+.midnight-oven .social-icon-circle {
+  background-color: rgba(255, 80, 80, 0.18) !important;
+}
+
+.midnight-oven .group:hover .social-icon-circle {
+  background-color: var(--pc-red-500) !important;
+}
+
+/* Footer social icon images also need brightness fix */
+.midnight-oven footer .bg-white img {
+  filter: none !important;
+  opacity: 1;
+}
+
 /* Modal backgrounds */
 .midnight-oven .bg-\[\#FFF8F2\] {
   background-color: #120604 !important;
@@ -534,6 +584,59 @@ h4,
   color: rgba(255, 255, 255, 0.62) !important;
 }
 
+/* --- Bundle selection UI contrast (ItemDetailContent) --- */
+.midnight-oven .bg-gray-50\/80 {
+  background-color: rgba(255, 85, 34, 0.06) !important;
+  border-color: rgba(255, 85, 34, 0.18) !important;
+}
+
+.midnight-oven .border-gray-200\/80 {
+  border-color: rgba(255, 85, 34, 0.18) !important;
+}
+
+/* Bundle option row */
+.midnight-oven .border-\[var\(--pc-color-primary\)\] {
+  border-color: var(--pc-color-primary) !important;
+}
+
+.midnight-oven .border-amber-200 {
+  border-color: rgba(245, 158, 11, 0.25) !important;
+}
+
+.midnight-oven .bg-amber-50 {
+  background-color: rgba(245, 158, 11, 0.12) !important;
+  color: #fbbf24 !important;
+}
+
+.midnight-oven .bg-red-100 {
+  background-color: rgba(239, 68, 68, 0.15) !important;
+  color: #f87171 !important;
+}
+
+.midnight-oven .text-red-700 {
+  color: #f87171 !important;
+}
+
+.midnight-oven .border-green-200 {
+  border-color: rgba(16, 185, 129, 0.25) !important;
+}
+
+.midnight-oven .bg-gray-200 {
+  background-color: rgba(255, 255, 255, 0.08) !important;
+}
+
+.midnight-oven .text-gray-700 {
+  color: var(--pc-gray-600) !important;
+}
+
+.midnight-oven .text-gray-300 {
+  color: rgba(255, 237, 212, 0.35) !important;
+}
+
+.midnight-oven .hover\:border-gray-300:hover {
+  border-color: rgba(255, 85, 34, 0.30) !important;
+}
+
 /* ==========================================================================
    🃏 REUSABLE MENU CARD DESIGN SYSTEM
    ========================================================================== */
@@ -575,6 +678,322 @@ h4,
 .menu-card:focus-visible {
   outline: 3px solid var(--pc-amber-500);
   outline-offset: 3px;
+}
+
+/* Interactive size quick-select pills (WCAG ≥44×36 touch targets) */
+.size-pill--interactive {
+  min-width: 44px;
+  min-height: 36px;
+  padding: 4px 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  font-family: var(--font-body);
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--pc-gray-400);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease, transform 0.1s ease;
+}
+@media (max-width: 639px) {
+  .size-pill--interactive {
+    min-width: 26px;
+    min-height: 24px;
+    padding: 2px 6px;
+    font-size: 10px;
+  }
+}
+.size-pill--interactive:hover {
+  background: rgba(245, 158, 11, 0.12);
+  color: var(--pc-amber-400);
+  border-color: rgba(245, 158, 11, 0.3);
+}
+.size-pill--interactive.is-selected {
+  background: rgba(245, 158, 11, 0.15);
+  color: var(--pc-amber-400);
+  border-color: rgba(245, 158, 11, 0.45);
+}
+.size-pill--interactive:active {
+  transform: scale(0.95);
+}
+.size-pill--interactive.is-disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+.size-pill--interactive:focus-visible {
+  outline: 3px solid var(--pc-amber-500);
+  outline-offset: 2px;
+}
+
+/* Combo savings badge — green per existing pricing-discount language */
+.save-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 4px 9px;
+  border-radius: 999px;
+  font-family: var(--font-body);
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  background-color: var(--pc-green-500);
+  color: #ffffff;
+  box-shadow: 0 2px 8px rgba(16, 185, 129, 0.35);
+  white-space: nowrap;
+  line-height: 1;
+}
+
+/* ==========================================================================
+   📱 MENU STICKY BAR ROW — chips + collapsible search share one row
+   ========================================================================== */
+.menu-filter-bar__row {
+  display: flex;
+  align-items: stretch;
+  min-height: 52px;
+}
+
+/* Search toggle button — 44px touch target */
+.menu-filter-search-btn {
+  width: 44px;
+  height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: #FFFFFF;
+  border: 1px solid #D8CFC6;
+  color: #1A0A00;
+  box-shadow: 0 2px 8px rgba(42, 20, 0, 0.10), 0 1px 2px rgba(42, 20, 0, 0.08);
+  cursor: pointer;
+  transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease, transform 0.12s ease;
+}
+.menu-filter-search-btn:hover {
+  background: #FFF5EE;
+  border-color: #C9BBAE;
+  color: #D72B2B;
+}
+.menu-filter-search-btn:active {
+  transform: scale(0.94);
+}
+.menu-filter-search-btn:focus-visible {
+  outline: 3px solid var(--pc-amber-500);
+  outline-offset: 2px;
+}
+.midnight-oven .menu-filter-search-btn {
+  background: #2A1400;
+  border-color: rgba(255, 255, 255, 0.20);
+  color: #fff;
+}
+.midnight-oven .menu-filter-search-btn:hover {
+  background: #3A1A0A;
+  color: var(--pc-amber-400);
+}
+
+/* ==========================================================================
+   🍔 FLOATING CATEGORY FAB + JUMP SHEET — mobile only
+   ========================================================================== */
+.category-fab {
+  position: fixed;
+  bottom: calc(80px + env(safe-area-inset-bottom, 0px));
+  right: 16px;
+  z-index: 45;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 14px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--menu-red), var(--menu-amber));
+  color: #fff;
+  font-family: var(--font-body);
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  box-shadow: 0 8px 24px rgba(214, 40, 40, 0.4);
+  cursor: pointer;
+  border: none;
+}
+@media (min-width: 768px) {
+  .category-fab {
+    display: none !important;
+  }
+}
+.category-fab:active {
+  transform: scale(0.95);
+}
+.category-fab:focus-visible {
+  outline: 3px solid var(--pc-amber-500);
+  outline-offset: 2px;
+}
+.category-fab__label {
+  line-height: 1;
+}
+.category-fab__chev {
+  opacity: 0.85;
+}
+/* Page behind the sheet dims slightly more than the modal backdrop */
+.bottom-sheet-backdrop {
+  background-color: rgba(0, 0, 0, 0.55);
+}
+
+/* Sheet surface */
+.bottom-sheet {
+  background: #FFF8F2;
+  color: #1A0A00;
+  max-height: 85vh;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  box-shadow: 0 -12px 48px rgba(0, 0, 0, 0.35);
+}
+.bottom-sheet__handle-bar {
+  display: block;
+  width: 40px;
+  height: 6px;
+  border-radius: 999px;
+  background: #D8CFC6;
+}
+.bottom-sheet__handle:hover .bottom-sheet__handle-bar {
+  background: #C9BBAE;
+}
+.bottom-sheet__title {
+  font-family: var(--font-playfair);
+  font-weight: 900;
+  font-size: 17px;
+  color: #1A0A00;
+  padding: 6px 16px 2px;
+}
+.bottom-sheet__body {
+  padding: 8px 16px 16px;
+}
+
+/* Category jump sheet items — 2-up grid, ≥44px tall */
+.fab-sheet-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 48px;
+  padding: 8px 10px;
+  border-radius: 14px;
+  background: #FFFFFF;
+  border: 1px solid #E5D9D0;
+  cursor: pointer;
+  text-align: left;
+  transition: background-color 0.15s ease, border-color 0.15s ease, transform 0.1s ease;
+}
+.fab-sheet-item:hover {
+  background: #FFF5EE;
+  border-color: #C9BBAE;
+}
+.fab-sheet-item:active {
+  transform: scale(0.98);
+}
+.fab-sheet-item.is-active {
+  border-color: var(--pc-red-500);
+  background: rgba(215, 43, 43, 0.06);
+}
+.fab-sheet-item__icon {
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: #D72B2B;
+  color: #fff;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+.fab-sheet-item__icon svg {
+  width: 100%;
+  height: 100%;
+}
+.fab-sheet-item__label {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  font-weight: 800;
+  color: #1A0A00;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.fab-sheet-item__count {
+  font-size: 10px;
+  font-weight: 900;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: #FFF0E6;
+  border: 1px solid #E5D9D0;
+  color: #7A1A00;
+  flex-shrink: 0;
+}
+.fab-sheet-item:focus-visible {
+  outline: 3px solid var(--pc-amber-500);
+  outline-offset: 2px;
+}
+
+/* Midnight Oven variants — sheet, FAB, sheet items */
+.midnight-oven .bottom-sheet {
+  background: #140805;
+  color: #ffedd4;
+  box-shadow: 0 -12px 48px rgba(0, 0, 0, 0.7);
+}
+.midnight-oven .bottom-sheet__handle-bar {
+  background: rgba(255, 237, 212, 0.25);
+}
+.midnight-oven .bottom-sheet__handle:hover .bottom-sheet__handle-bar {
+  background: rgba(255, 237, 212, 0.4);
+}
+.midnight-oven .bottom-sheet__title {
+  color: #ffedd4;
+}
+.midnight-oven .fab-sheet-item {
+  background: #1e0d08;
+  border-color: rgba(255, 85, 34, 0.18);
+}
+.midnight-oven .fab-sheet-item:hover {
+  background: #2b140d;
+  border-color: rgba(255, 85, 34, 0.35);
+}
+.midnight-oven .fab-sheet-item.is-active {
+  border-color: var(--pc-amber-400);
+  background: rgba(242, 101, 34, 0.10);
+}
+.midnight-oven .fab-sheet-item__icon {
+  background: var(--pc-amber-400);
+  color: #000;
+}
+.midnight-oven .fab-sheet-item__label {
+  color: #ffedd4;
+}
+.midnight-oven .fab-sheet-item__count {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.15);
+  color: #ffedd4;
+}
+.midnight-oven .category-fab {
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.55);
+}
+
+/* Wide horizontal card — small categories (combos ≤2 items) */
+.menu-card--wide {
+  min-height: 150px;
+}
+.menu-card--wide .size-pill--interactive {
+  min-height: 32px;
+  min-width: 38px;
+  padding: 3px 10px;
+  font-size: 10px;
+}
+@media (max-width: 639px) {
+  .menu-card--wide {
+    min-height: 130px;
+  }
 }
 
 /* Offer peek carousel */
@@ -931,6 +1350,31 @@ h4,
   }
 }
 
+/* Fully collapsed bar — before the user scrolls into the menu. Without this
+   the sticky element still paints its cream surface as a blank strip under
+   the navbar even though its chips are hidden. */
+.menu-filter-bar--collapsed {
+  max-height: 0 !important;
+  height: 0 !important;
+  min-height: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+  border-bottom: none !important;
+  box-shadow: none !important;
+  background: transparent !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  pointer-events: none !important;
+}
+/* The row's min-height must collapse with the bar */
+.menu-filter-bar--collapsed .menu-filter-bar__row {
+  min-height: 0 !important;
+  height: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
 /* --- Sticky category chips — solid elevated pills, no Tailwind !/dark: ---
    V3 fix: Tailwind v4 ignores leading !text-* and dark: never fires
    (theme uses .midnight-oven). Custom classes guarantee 15:1 contrast. */
@@ -970,6 +1414,9 @@ h4,
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  width: 24px;
+  height: 24px;
+  overflow: hidden;
   padding: 4px;
   border-radius: 12px;
   background: #D72B2B;
@@ -1189,16 +1636,42 @@ h4,
   margin: 0 auto;
 }
 
-/* Menu grid layout */
+/* Category section headers — count pill + full-width divider (inside dark section) */
+.menu-section__head {
+  margin-bottom: 1.25rem;
+}
+.menu-section__count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 26px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-family: var(--font-body);
+  font-size: 11px;
+  font-weight: 800;
+  background: rgba(245, 158, 11, 0.12);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  color: var(--menu-amber);
+  align-self: center;
+}
+.menu-section__divider {
+  height: 1px;
+  background: linear-gradient(90deg, rgba(215, 43, 43, 0.55), rgba(245, 158, 11, 0.35), transparent);
+  border-radius: 1px;
+}
+
+/* Menu grid layout — 2-col from 0px (compact mobile cards), 3-col on desktop */
 .menu-grid {
   display: grid;
-  grid-template-columns: 1fr;
-  gap: 16px; /* upgraded from 8px to maintain 8dp rhythm at card level */
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px; /* tighter rhythm for ~170px mobile cards */
 }
 
 @media (min-width: 640px) {
   .menu-grid {
     grid-template-columns: repeat(2, 1fr);
+    gap: 16px;
   }
 }
 
@@ -1206,6 +1679,11 @@ h4,
   .menu-grid {
     grid-template-columns: repeat(3, 1fr);
   }
+}
+
+/* Wide cards always span the full row */
+.menu-grid > .menu-card--wide {
+  grid-column: 1 / -1;
 }
 
 /* ==========================================================================
@@ -1677,19 +2155,55 @@ textarea:focus-visible {
    🍕 PIZZA LOADER — Pepperoni & Cheese Themed
    ========================================================================== */
 
-.pizza-lottie {
-  animation: lottie-fade-in 0.45s ease-out both;
+.pizza-loader-container {
+  animation: pizza-loader-fade 0.3s ease-out both;
 }
 
-@keyframes lottie-fade-in {
-  from { opacity: 0; transform: scale(0.96); }
+@keyframes pizza-loader-fade {
+  from { opacity: 0; transform: scale(0.95); }
   to   { opacity: 1; transform: scale(1); }
 }
 
+@keyframes pizza-spin-gentle {
+  0% { transform: rotate(0deg); }
+  50% { transform: rotate(8deg); }
+  100% { transform: rotate(0deg); }
+}
+
+@keyframes pizza-slice-pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.04); }
+}
+
+@keyframes steam-rise {
+  0% { opacity: 0; transform: translateY(2px); }
+  50% { opacity: 0.8; }
+  100% { opacity: 0; transform: translateY(-4px); }
+}
+
+.animate-pizza-spin-gentle {
+  animation: pizza-spin-gentle 3s ease-in-out infinite;
+}
+
+.animate-pizza-slice-pulse {
+  animation: pizza-slice-pulse 2s ease-in-out infinite;
+}
+
+.animate-steam-1 {
+  animation: steam-rise 1.6s ease-out infinite;
+}
+
+.animate-steam-2 {
+  animation: steam-rise 1.6s ease-out infinite 0.6s;
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .pizza-lottie {
-    animation: none;
-    opacity: 1;
+  .pizza-loader-container,
+  .animate-pizza-spin-gentle,
+  .animate-pizza-slice-pulse,
+  .animate-steam-1,
+  .animate-steam-2 {
+    animation: none !important;
   }
 }
 

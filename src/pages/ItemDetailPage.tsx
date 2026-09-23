@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { Link, useParams } from "react-router-dom";
 import { ArrowLeft } from "lucide-react";
-import { MenuItem } from "../types";
+import { MenuItem, BundleSelection } from "../types";
 import { getItemDetailData, itemSlug } from "../lib/itemSlug";
 import { SITE_URL } from "../lib/seo";
 import Seo from "../components/Seo";
@@ -10,7 +10,7 @@ import ItemDetailContent from "../components/ItemDetailContent";
 interface ItemDetailPageProps {
   menuItems: MenuItem[];
   isLoadingMenu: boolean;
-  onAdd: (item: MenuItem, size: string, quantity: number) => void;
+  onAdd: (item: MenuItem, size: string, quantity: number, bundleSelections?: BundleSelection[]) => void;
   onConfigure: (item: MenuItem) => void;
   onQuickView: (item: MenuItem) => void;
   displayToast?: (msg: string) => void;
@@ -117,6 +117,7 @@ export default function ItemDetailPage({
         onConfigure={onConfigure}
         onQuickView={onQuickView}
         displayToast={displayToast}
+        menuItems={menuItems}
       />
     </div>
   );

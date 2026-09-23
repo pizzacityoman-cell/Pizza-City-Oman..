@@ -1,9 +1,24 @@
 import { MenuItemSize } from "./lib/priceUtils";
 
+export interface Category {
+  _id: string;
+  name: string;
+  slug: string;
+  description?: string;
+  image?: string;
+  displayOrder: number;
+  active: boolean;
+  showOnMenu: boolean;
+  seoTitle?: string;
+  seoDescription?: string;
+}
+
 export interface MenuItem {
   _id: string;
   name: string;
   category: string;
+  categoryId?: string;
+  displayOrder?: number;
   price: number;
   description: string;
   image: string;
@@ -14,6 +29,35 @@ export interface MenuItem {
   featured?: boolean;
   pinnedFeatured?: boolean;
   sizes?: MenuItemSize[];
+  bundleConfig?: BundleConfig;
+}
+
+export interface BundleGroup {
+  id: string;
+  title: string;
+  description?: string;
+  minSelections: number;
+  maxSelections: number;
+  required: boolean;
+  allowDuplicates: boolean;
+  optionItemIds: string[];
+}
+
+export interface BundleConfig {
+  enabled: boolean;
+  groups: BundleGroup[];
+}
+
+export interface BundleSelectionItem {
+  menuItemId: string;
+  name: string;
+  quantity?: number;
+}
+
+export interface BundleSelection {
+  groupId: string;
+  groupTitle: string;
+  items: BundleSelectionItem[];
 }
 
 export interface PromoCode {
@@ -30,6 +74,7 @@ export interface CartEntry {
   quantity: number;
   size: string;
   unitPrice: number;
+  bundleSelections?: BundleSelection[];
 }
 
 export interface OrderItem {
@@ -38,6 +83,7 @@ export interface OrderItem {
   size?: string;
   quantity: number;
   price: number;
+  bundleSelections?: BundleSelection[];
 }
 
 export interface Customer {
