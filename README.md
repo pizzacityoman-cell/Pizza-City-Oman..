@@ -36,7 +36,7 @@ See `.env.example` for the full list:
 | `JWT_REFRESH_SECRET` | yes (prod) | Separate signing key for refresh tokens |
 | `ADMIN_USERNAME` / `ADMIN_PASSWORD` | yes | Seed credentials for the initial superadmin |
 | `MONGODB_URI` | no | MongoDB connection string (empty = in-memory/local fallback) |
-| `CLOUDINARY_CLOUD_NAME` / `CLOUDINARY_API_KEY` / `CLOUDINARY_API_SECRET` | no | Image uploads for banners/menu items |
+| `CLOUDFLARE_R2_ACCOUNT_ID` / `CLOUDFLARE_R2_ACCESS_KEY_ID` / `CLOUDFLARE_R2_SECRET_ACCESS_KEY` / `CLOUDFLARE_R2_BUCKET_NAME` / `CLOUDFLARE_R2_PUBLIC_URL` | no | R2 media storage for banner/menu uploads (auto-optimized to WebP) |
 | `ALLOWED_ORIGIN` | no | CORS origin; defaults to `https://pizzacityoman.com` |
 
 ## Setup & Commands
@@ -71,7 +71,9 @@ npm run lint       # TypeScript check (tsc --noEmit)
 
 ## Admin-Only API Endpoints
 
-Full CRUD for branches, promos, banners, menu items, and users under `/admin/api/*` (superadmin required), plus `POST /admin/api/upload` for Cloudinary image uploads.
+Full CRUD for branches, promos, banners, menu items, and users under `/admin/api/*` (superadmin required), plus `POST /admin/api/upload?type=banner|menu|branch|misc` for R2 image uploads (auto-resized + WebP).
+
+Migrate legacy Cloudinary assets: `npx tsx scripts/migrate-cloudinary-to-cloudflare.ts --dry-run` then without flags for live rewrite.
 
 ## Deployment
 

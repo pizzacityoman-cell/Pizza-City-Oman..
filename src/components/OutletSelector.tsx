@@ -242,6 +242,7 @@ export default function OutletSelector({
           name: hasMultipleSizes ? `${entry.item.name} [Size: ${entry.size}]` : entry.item.name,
           size: hasMultipleSizes ? entry.size : undefined,
           quantity: entry.quantity,
+          bundleSelections: entry.bundleSelections && entry.bundleSelections.length > 0 ? entry.bundleSelections : undefined,
         };
       }),
       customer: {
@@ -521,7 +522,7 @@ export default function OutletSelector({
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     {menuItems.filter(i => i.available !== false).slice(0, 4).map(item => (
                       <div key={item._id} className="cart-card flex items-center gap-3 p-3 text-left group">
-                        <img src={item.image || FALLBACK_FOOD_IMAGE} alt={getMenuItemAltText(item)} className="w-16 h-16 rounded-xl object-cover shadow-sm group-hover:scale-105 transition-transform" />
+                        <img src={item.image || FALLBACK_FOOD_IMAGE} alt={getMenuItemAltText(item)} className="w-16 h-16 rounded-xl object-cover shadow-sm group-hover:scale-105 transition-transform" onError={(e) => { const el = e.currentTarget; if (el.src !== FALLBACK_FOOD_IMAGE) el.src = FALLBACK_FOOD_IMAGE; }} />
                         <div className="flex-1 min-w-0">
                           <h5 className="font-extrabold text-xs text-[var(--pc-color-text-primary-light)] truncate">{item.name}</h5>
                           <span className="font-body text-xs font-black text-[var(--pc-color-primary)]">OMR {item.discountPrice && item.discountPrice < item.price ? item.discountPrice.toFixed(2) : item.price.toFixed(2)}</span>
@@ -621,7 +622,7 @@ export default function OutletSelector({
 
                   return (
                     <motion.div
-                      key={`${entry.item._id}-${entry.size}`}
+                      key={`${entry.item._id}-${entry.size}-${index}`}
                       layout
                       initial={{ opacity: 0, y: 12, scale: 0.97 }}
                       animate={{ opacity: 1, y: 0, scale: 1 }}
@@ -647,6 +648,16 @@ export default function OutletSelector({
                                 ) : null;
                               })()}
                             </p>
+                            {entry.bundleSelections && entry.bundleSelections.length > 0 && (
+                              <div className="mt-1 space-y-0.5 border-l-2 border-[var(--pc-color-primary)]/40 pl-2">
+                                {entry.bundleSelections.map((grp, gIdx) => (
+                                  <div key={gIdx} className="text-[10px] text-[var(--pc-color-text-secondary-light)]">
+                                    <span className="font-bold text-[var(--pc-color-text-primary-light)]">{grp.groupTitle}:</span>{" "}
+                                    {grp.items.map((opt) => `${opt.quantity && opt.quantity > 1 ? `${opt.quantity}x ` : ""}${opt.name}`).join(", ")}
+                                  </div>
+                                ))}
+                              </div>
+                            )}
                           </div>
                           <div className="text-right flex flex-col items-end flex-shrink-0">
                             <span className="font-body font-bold text-xs text-[var(--pc-color-primary)]">

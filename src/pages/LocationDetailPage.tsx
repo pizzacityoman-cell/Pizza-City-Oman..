@@ -4,6 +4,7 @@ import { Phone, MapPin, Clock, ArrowLeft, Truck, ShoppingBag, Navigation, Extern
 import { motion } from "motion/react";
 import { Branch } from "../types";
 import { getBranchAltText } from "../lib/altText";
+import { getMediaUrl } from "../lib/images";
 
 /* ─────────────────────── Helpers ─────────────────────── */
 
@@ -60,18 +61,9 @@ function parseHoursToSchema(hours?: string) {
   }];
 }
 
-/** Build Cloudinary URL with optimized transformations */
+/** Legacy alias — use shared getMediaUrl() (handles R2 + legacy Cloudinary). */
 function cloudinaryUrl(imageUrl?: string, width = 800): string | undefined {
-  if (!imageUrl) return undefined;
-  // If already a Cloudinary URL, ensure it has auto-format and responsive width
-  if (imageUrl.includes("res.cloudinary.com")) {
-    // Replace or inject transformation params
-    return imageUrl.replace(
-      /\/upload\/(.*?)\//,
-      `/upload/w_${width},q_auto,f_auto/`
-    );
-  }
-  return imageUrl;
+  return getMediaUrl(imageUrl, width);
 }
 
 /** Derive a URL-safe slug from a branch name */
@@ -280,6 +272,7 @@ export default function LocationDetailPage({ branches }: LocationDetailPageProps
               alt={getBranchAltText(outlet)}
               className="w-full h-full object-cover"
               loading="eager"
+              onError={(e) => { e.currentTarget.style.display = "none"; }}
             />
           ) : (
             <iframe
@@ -455,6 +448,7 @@ export default function LocationDetailPage({ branches }: LocationDetailPageProps
                         alt={getBranchAltText(b)}
                         className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                         loading="lazy"
+                        onError={(e) => { e.currentTarget.style.display = "none"; }}
                       />
                     ) : (
                       <div className="w-full h-full flex items-center justify-center text-[var(--pc-gray-400)]">

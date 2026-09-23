@@ -8,6 +8,8 @@ interface MenuCardGridProps {
   subtitle?: string;
   items: MenuItem[];
   onOrder: (item: MenuItem) => void;
+  /** Direct add for single-size items only (skips configure modal). */
+  onAddDirect?: (item: MenuItem, size: string) => void;
   badge?: string | ((item: MenuItem, index: number) => string | undefined);
   emptyMessage?: string;
   limit?: number;
@@ -15,6 +17,8 @@ interface MenuCardGridProps {
   isLoading?: boolean;
   displayToast?: (msg: string) => void;
   onQuickView?: (item: MenuItem) => void;
+  /** Render every card in the full-width horizontal variant. */
+  wideCards?: boolean;
 }
 
 function SkeletonCard() {
@@ -49,6 +53,7 @@ export default function MenuCardGrid({
   subtitle,
   items,
   onOrder,
+  onAddDirect,
   badge,
   emptyMessage = "No items available in this category right now.",
   limit,
@@ -56,6 +61,7 @@ export default function MenuCardGrid({
   isLoading = false,
   displayToast,
   onQuickView,
+  wideCards = false,
 }: MenuCardGridProps) {
   const [isExpanded, setIsExpanded] = useState(false);
 
@@ -140,10 +146,12 @@ export default function MenuCardGrid({
                 <MenuCard
                   item={item}
                   onOrder={onOrder}
+                  onAddDirect={onAddDirect}
                   badge={resolveBadge(item, index)}
                   index={index}
                   displayToast={displayToast}
                   onQuickView={onQuickView}
+                  wide={wideCards}
                 />
               </React.Fragment>
             ))}

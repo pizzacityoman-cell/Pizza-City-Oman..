@@ -1,7 +1,7 @@
 import React, { Suspense, lazy, useState, useEffect, useMemo, useRef } from "react";
-import { Routes, Route, Link, Navigate, matchPath, useLocation, useNavigate } from "react-router-dom";
+import { Routes, Route, Link, Navigate, matchPath, useLocation, useNavigate, useParams } from "react-router-dom";
 import Seo from "./components/Seo";
-import { PAGE_SEO, SECTION_TO_PATH, SITE_URL } from "./lib/seo";
+import { PAGE_SEO, SECTION_TO_PATH, SITE_URL, OG_IMAGE, makePageBreadcrumb } from "./lib/seo";
 import { LOGO_ALT, getMenuItemAltText } from "./lib/altText";
 import { FALLBACK_FOOD_IMAGE } from "./lib/images";
 import { 
@@ -10,14 +10,14 @@ import {
 import { motion, AnimatePresence } from "motion/react";
 
 // Components
-import OutletSelector from "./components/OutletSelector";
-import OrderTracker from "./components/OrderTracker";
+const OutletSelector = lazy(() => import("./components/OutletSelector"));
 import Loader from "./components/Loader";
+import BottomSheet from "./components/BottomSheet";
 
-// Pages — HomePage/MenuPage stay eager (LCP-critical). All other routes are
+// Pages — HomePage stays eager (LCP-critical landing). All other routes & dialogs are
 // code-split with React.lazy so the initial bundle only ships what's needed.
 import HomePage from "./pages/HomePage";
-import MenuPage from "./pages/MenuPage";
+const MenuPage = lazy(() => import("./pages/MenuPage"));
 const LocationsPage = lazy(() => import("./pages/LocationsPage"));
 const LocationDetailPage = lazy(() => import("./pages/LocationDetailPage"));
 const ContactPage = lazy(() => import("./pages/ContactPage"));
@@ -27,16 +27,32 @@ const AdminPage = lazy(() => import("./pages/AdminPage"));
 const PrivacyPage = lazy(() => import("./pages/PrivacyPage"));
 const TermsPage = lazy(() => import("./pages/TermsPage"));
 const ItemDetailPage = lazy(() => import("./pages/ItemDetailPage"));
-import ItemDetailContent from "./components/ItemDetailContent";
+const ItemDetailContent = lazy(() => import("./components/ItemDetailContent"));
 import { getItemDetailData, itemSlug } from "./lib/itemSlug";
 
 // Types & Utils
-import { MenuItem, CartEntry, HeroBanner, Branch } from "./types";
+import { MenuItem, Category, CartEntry, HeroBanner, Branch, BundleSelection } from "./types";
 import { getEffectiveBasePrice, getOptimizedUnitPrice, getSizeAdjustedPrice, getDefaultSizes } from "./lib/priceUtils";
 import type { MenuItemSize } from "./lib/priceUtils";
 import { SOCIAL_LINKS } from "./lib/socialLinks";
 
 const CART_STORAGE_KEY = "pizza_city_cart";
+
+export function getBundleSelectionsKey(selections?: BundleSelection[]): string {
+  if (!selections || selections.length === 0) return "";
+  const sorted = [...selections].sort((a, b) => a.groupId.localeCompare(b.groupId));
+  return JSON.stringify(
+    sorted.map((g) => ({
+      groupId: g.groupId,
+      items: [...g.items]
+        .sort((a, b) => a.menuItemId.localeCompare(b.menuItemId))
+        .map((i) => ({
+          id: i.menuItemId,
+          q: i.quantity || 1,
+        })),
+    }))
+  );
+}
 
 // Shown while a code-split route chunk loads (React.lazy + Suspense).
 function RouteFallback() {
@@ -68,6 +84,87 @@ function loadCartFromStorage(): CartEntry[] {
   }
 }
 
+interface MenuSlugRouteProps {
+  categories: Category[];
+  menuItems: MenuItem[];
+  isLoadingMenu: boolean;
+  menuFilter: string;
+  setMenuFilter: (f: string) => void;
+  addToCart: (item: MenuItem) => void;
+  addDirectToCart: (item: MenuItem, size: string, quantity: number) => void;
+  searchQuery: string;
+  onSearchChange: (q: string) => void;
+  navHidden: boolean;
+  displayToast: (msg: string) => void;
+  openQuickView: (item: MenuItem) => void;
+}
+
+function MenuSlugRoute({
+  categories,
+  menuItems,
+  isLoadingMenu,
+  menuFilter,
+  setMenuFilter,
+  addToCart,
+  addDirectToCart,
+  searchQuery,
+  onSearchChange,
+  navHidden,
+  displayToast,
+  openQuickView,
+}: MenuSlugRouteProps) {
+  const { slug } = useParams<{ slug: string }>();
+  const cleanSlug = (slug || "").toLowerCase();
+
+  const matchedCategory = categories.find(
+    (c) => c.slug.toLowerCase() === cleanSlug && c.active !== false
+  );
+
+  if (matchedCategory) {
+    const title = matchedCategory.seoTitle || `${matchedCategory.name} | Pizza City Oman`;
+    const description =
+      matchedCategory.seoDescription ||
+      matchedCategory.description ||
+      `Order ${matchedCategory.name} online from Pizza City Oman via WhatsApp. Fast delivery across Oman.`;
+    const canonical = `${SITE_URL}/menu/${matchedCategory.slug}`;
+
+    return (
+      <>
+        <Seo title={title} description={description} canonical={canonical} />
+        <div>
+          <MenuPage
+            menuItems={menuItems}
+            categories={categories}
+            isLoadingMenu={isLoadingMenu}
+            menuFilter={matchedCategory.slug}
+            setMenuFilter={setMenuFilter}
+            categorySlug={matchedCategory.slug}
+            addToCart={addToCart}
+            addDirectToCart={addDirectToCart}
+            searchQuery={searchQuery}
+            onSearchChange={onSearchChange}
+            navHidden={navHidden}
+            displayToast={displayToast}
+          />
+        </div>
+      </>
+    );
+  }
+
+  return (
+    <div className="mt-3 md:mt-0">
+      <ItemDetailPage
+        menuItems={menuItems}
+        isLoadingMenu={isLoadingMenu}
+        onAdd={addDirectToCart}
+        onConfigure={addToCart}
+        onQuickView={openQuickView}
+        displayToast={displayToast}
+      />
+    </div>
+  );
+}
+
 export default function App() {
   const location = useLocation();
   const navigate = useNavigate();
@@ -78,7 +175,7 @@ export default function App() {
   // so the background page stays mounted behind the modal.
   const backgroundLocation = (location.state as { backgroundLocation?: Location } | null)?.backgroundLocation;
   const itemRouteMatch = matchPath("/menu/:slug", location.pathname);
-  const quickViewSlug = backgroundLocation ? itemRouteMatch?.params.slug : undefined;
+  const rawQuickViewSlug = backgroundLocation ? itemRouteMatch?.params.slug : undefined;
   // While the modal is open, nav/highlight follow the background page, not the item URL.
   const navPath = backgroundLocation ? backgroundLocation.pathname : currentPath;
 
@@ -124,6 +221,7 @@ export default function App() {
     }
   }, [isDarkMode]);
 
+  const [categories, setCategories] = useState<Category[]>([]);
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
   const [isLoadingMenu, setIsLoadingMenu] = useState(true);
 
@@ -231,9 +329,12 @@ export default function App() {
 
   const refreshMenu = async () => {
     try {
-      const res = await fetch("/api/menu");
+      const [res, catRes] = await Promise.all([fetch("/api/menu"), fetch("/api/categories")]);
       if (res.ok) {
         setMenuItems(await res.json());
+      }
+      if (catRes.ok) {
+        setCategories(await catRes.json());
       }
     } catch (err) {
       console.warn("Live menu sync failure", err);
@@ -246,12 +347,16 @@ export default function App() {
       setIsLoadingBanners(true);
       setIsLoadingBranches(true);
       try {
-        const [menuRes, bannersRes, branchesRes] = await Promise.all([
-          fetch("/api/menu"), fetch("/api/banners"), fetch("/api/branches")
+        const [menuRes, bannersRes, branchesRes, catRes] = await Promise.all([
+          fetch("/api/menu"),
+          fetch("/api/banners"),
+          fetch("/api/branches"),
+          fetch("/api/categories"),
         ]);
         if (menuRes.ok) setMenuItems(await menuRes.json());
         if (bannersRes.ok) setBanners(await bannersRes.json());
         if (branchesRes.ok) setBranches(await branchesRes.json());
+        if (catRes.ok) setCategories(await catRes.json());
       } catch (err) {
         console.warn("Error loading data from server", err);
       } finally {
@@ -324,6 +429,10 @@ export default function App() {
   }, [currentPath, navigate]);
 
   const addToCart = (product: MenuItem) => {
+    if (product.bundleConfig?.enabled && product.bundleConfig.groups && product.bundleConfig.groups.length > 0) {
+      openQuickView(product);
+      return;
+    }
     setSelectedConfigureItem(product);
     const sizes = product.sizes || getDefaultSizes(product.category);
     setSelectedSize(sizes[0]?.name || "Medium");
@@ -340,13 +449,21 @@ export default function App() {
     const optimizedPrice = getOptimizedUnitPrice(basePrice, selectedSize, itemSizes, selectedQuantity);
 
     setCart((prev) => {
-      const exists = prev.find((entry) => entry.item._id === selectedConfigureItem._id && entry.size === selectedSize);
+      const exists = prev.find(
+        (entry) =>
+          entry.item._id === selectedConfigureItem._id &&
+          entry.size === selectedSize &&
+          getBundleSelectionsKey(entry.bundleSelections) === ""
+      );
       if (exists) {
         const newQty = exists.quantity + selectedQuantity;
         const reOptimizedPrice = getOptimizedUnitPrice(basePrice, selectedSize, itemSizes, newQty);
         return prev.map((entry) =>
-          entry.item._id === selectedConfigureItem._id && entry.size === selectedSize
-            ? { ...entry, quantity: newQty, unitPrice: reOptimizedPrice } : entry
+          entry.item._id === selectedConfigureItem._id &&
+          entry.size === selectedSize &&
+          getBundleSelectionsKey(entry.bundleSelections) === ""
+            ? { ...entry, quantity: newQty, unitPrice: reOptimizedPrice }
+            : entry
         );
       }
       return [...prev, { item: selectedConfigureItem, quantity: selectedQuantity, size: selectedSize, unitPrice: optimizedPrice }];
@@ -358,24 +475,47 @@ export default function App() {
   };
 
   // Direct add from item detail views (size/qty already chosen — same pricing math, no configure modal)
-  const addDirectToCart = (product: MenuItem, size: string, quantity: number) => {
+  const addDirectToCart = (
+    product: MenuItem,
+    size: string,
+    quantity: number,
+    bundleSelections?: BundleSelection[]
+  ) => {
     const basePrice = (product.discountPrice && product.discountPrice < product.price)
       ? product.discountPrice : product.price;
     const itemSizes = product.sizes || getDefaultSizes(product.category);
     const validSize = itemSizes.find((s) => s.name === size) ? size : itemSizes[0]?.name || "Medium";
     const optimizedPrice = getOptimizedUnitPrice(basePrice, validSize, itemSizes, quantity);
+    const newBundleKey = getBundleSelectionsKey(bundleSelections);
 
     setCart((prev) => {
-      const exists = prev.find((entry) => entry.item._id === product._id && entry.size === validSize);
+      const exists = prev.find(
+        (entry) =>
+          entry.item._id === product._id &&
+          entry.size === validSize &&
+          getBundleSelectionsKey(entry.bundleSelections) === newBundleKey
+      );
       if (exists) {
         const newQty = exists.quantity + quantity;
         const reOptimizedPrice = getOptimizedUnitPrice(basePrice, validSize, itemSizes, newQty);
         return prev.map((entry) =>
-          entry.item._id === product._id && entry.size === validSize
-            ? { ...entry, quantity: newQty, unitPrice: reOptimizedPrice } : entry
+          entry.item._id === product._id &&
+          entry.size === validSize &&
+          getBundleSelectionsKey(entry.bundleSelections) === newBundleKey
+            ? { ...entry, quantity: newQty, unitPrice: reOptimizedPrice }
+            : entry
         );
       }
-      return [...prev, { item: product, quantity, size: validSize, unitPrice: optimizedPrice }];
+      return [
+        ...prev,
+        {
+          item: product,
+          quantity,
+          size: validSize,
+          unitPrice: optimizedPrice,
+          bundleSelections: bundleSelections && bundleSelections.length > 0 ? bundleSelections : undefined,
+        },
+      ];
     });
 
     displayToast(`Added ${quantity}x ${product.name} to cart.`);
@@ -383,6 +523,11 @@ export default function App() {
   };
 
   // Item quick-view data + open/close (location plumbing lives near the top of the component)
+  const isCategorySlug = rawQuickViewSlug
+    ? categories.some((c) => c.slug.toLowerCase() === rawQuickViewSlug.toLowerCase())
+    : false;
+  const quickViewSlug = isCategorySlug ? undefined : rawQuickViewSlug;
+
   const quickViewData = useMemo(
     () => (quickViewSlug ? getItemDetailData(menuItems, quickViewSlug) : { item: null, related: [] }),
     [quickViewSlug, menuItems]
@@ -454,24 +599,32 @@ export default function App() {
   const menuItemListSchema = useMemo(() => {
     const items = menuItems.filter((item) => item.available !== false);
     if (items.length === 0) return undefined;
-    return {
-      "@context": "https://schema.org",
-      "@type": "ItemList",
-      name: "Pizza City Oman Menu",
-      url: `${SITE_URL}/menu`,
-      numberOfItems: items.length,
-      itemListElement: items.map((item, index) => ({
-        "@type": "ListItem",
-        position: index + 1,
-        item: {
-          "@type": "MenuItem",
-          name: item.name,
-          ...(item.description ? { description: item.description } : {}),
-          ...(item.image ? { image: item.image } : {}),
-        },
-      })),
-    };
+    return [
+      {
+        "@context": "https://schema.org",
+        "@type": "ItemList",
+        name: "Pizza City Oman Menu",
+        url: `${SITE_URL}/menu`,
+        numberOfItems: items.length,
+        itemListElement: items.map((item, index) => ({
+          "@type": "ListItem",
+          position: index + 1,
+          item: {
+            "@type": "MenuItem",
+            name: item.name,
+            ...(item.description ? { description: item.description } : {}),
+            ...(item.image ? { image: item.image } : {}),
+          },
+        })),
+      },
+      makePageBreadcrumb("Menu", "/menu"),
+    ];
   }, [menuItems]);
+
+  // BreadcrumbList schemas — one per section page (unlocks sitelink breadcrumbs in SERP)
+  const locationsSchema = useMemo(() => makePageBreadcrumb("Locations", "/locations"), []);
+  const contactSchema   = useMemo(() => makePageBreadcrumb("Contact",   "/contact"),   []);
+  const faqSchema       = useMemo(() => makePageBreadcrumb("FAQ",        "/faq"),       []);
 
   const cartTotalQty = cart.reduce((sum, entry) => sum + entry.quantity, 0);
   const cartTotalPrice = cart.reduce((sum, entry) => sum + entry.unitPrice * entry.quantity, 0);
@@ -612,6 +765,10 @@ export default function App() {
                         src={item.image}
                         alt={getMenuItemAltText(item)}
                         className="w-10 h-10 rounded-xl object-cover shrink-0 bg-white/10"
+                        onError={(e) => {
+                          const el = e.currentTarget;
+                          if (el.src !== FALLBACK_FOOD_IMAGE) el.src = FALLBACK_FOOD_IMAGE;
+                        }}
                       />
                       <div className="flex-1 min-w-0">
                         <p className="font-bold text-sm truncate">{item.name}</p>
@@ -760,20 +917,20 @@ export default function App() {
       {/* Pages Router — multi-page SEO routing: one URL per page.
           When a quick-view modal is open, the background page stays mounted
           (Routes render at backgroundLocation) and the item overlays it. */}
-      <div className={`pt-0 ${isAdminRoute ? "" : "md:pt-24"} flex-1 ${cartTotalQty > 0 ? 'pb-20 md:pb-0' : ''}`}>
+      <div className={`pt-0 ${isAdminRoute ? "" : "md:pt-24"} flex-1 ${cartTotalQty > 0 ? 'pb-24 md:pb-0' : ''}`}>
         <Suspense fallback={<RouteFallback />}>
         <Routes location={backgroundLocation || location}>
           <Route path="/" element={
             <>
-              <Seo title={PAGE_SEO.home.title} description={PAGE_SEO.home.description} canonical={PAGE_SEO.home.canonical} />
-              <HomePage banners={banners} isLoadingBanners={isLoadingBanners} setActiveTab={(tab) => { const key = tab === 'loc' ? 'locations' : tab; navigate(SECTION_TO_PATH[key] || "/"); }} displayToast={displayToast} onOpenOutletSelector={() => setIsOutletSelectorOpen(true)} menuItems={menuItems} isLoadingMenu={isLoadingMenu} branches={branches} onAddToCart={addToCart} setMenuFilter={setMenuFilter} />
+              <Seo title={PAGE_SEO.home.title} description={PAGE_SEO.home.description} canonical={PAGE_SEO.home.canonical} ogImage={PAGE_SEO.home.ogImage || OG_IMAGE} />
+              <HomePage banners={banners} isLoadingBanners={isLoadingBanners} setActiveTab={(tab) => { const key = tab === 'loc' ? 'locations' : tab; navigate(SECTION_TO_PATH[key] || "/"); }} displayToast={displayToast} onOpenOutletSelector={() => setIsOutletSelectorOpen(true)} menuItems={menuItems} categories={categories} isLoadingMenu={isLoadingMenu} branches={branches} onAddToCart={addToCart} setMenuFilter={setMenuFilter} />
             </>
           } />
           <Route path="/menu" element={
             <>
-              <Seo title={PAGE_SEO.menu.title} description={PAGE_SEO.menu.description} canonical={PAGE_SEO.menu.canonical} schema={menuItemListSchema} schemaId="menu-itemlist-schema" />
-              <div className="mt-3 md:mt-0">
-                <MenuPage menuItems={menuItems} isLoadingMenu={isLoadingMenu} menuFilter={menuFilter} setMenuFilter={setMenuFilter} addToCart={addToCart} searchQuery={siteSearch} onSearchChange={setSiteSearch} navHidden={navHidden} displayToast={displayToast} />
+              <Seo title={PAGE_SEO.menu.title} description={PAGE_SEO.menu.description} canonical={PAGE_SEO.menu.canonical} ogImage={PAGE_SEO.menu.ogImage || OG_IMAGE} schema={menuItemListSchema} schemaId="menu-itemlist-schema" />
+              <div>
+                <MenuPage menuItems={menuItems} categories={categories} isLoadingMenu={isLoadingMenu} menuFilter={menuFilter} setMenuFilter={setMenuFilter} addToCart={addToCart} addDirectToCart={addDirectToCart} searchQuery={siteSearch} onSearchChange={setSiteSearch} navHidden={navHidden} displayToast={displayToast} />
               </div>
             </>
           } />
@@ -788,7 +945,7 @@ export default function App() {
           <Route path="/track" element={<Navigate to="/track-order" replace />} />
           <Route path="/locations" element={
             <>
-              <Seo title={PAGE_SEO.locations.title} description={PAGE_SEO.locations.description} canonical={PAGE_SEO.locations.canonical} />
+              <Seo title={PAGE_SEO.locations.title} description={PAGE_SEO.locations.description} canonical={PAGE_SEO.locations.canonical} ogImage={PAGE_SEO.locations.ogImage || OG_IMAGE} schema={locationsSchema} schemaId="locations-breadcrumb-schema" />
               <div className="mt-12 md:mt-0">
                 <LocationsPage branches={branches} />
               </div>
@@ -796,7 +953,7 @@ export default function App() {
           } />
           <Route path="/contact" element={
             <>
-              <Seo title={PAGE_SEO.contact.title} description={PAGE_SEO.contact.description} canonical={PAGE_SEO.contact.canonical} />
+              <Seo title={PAGE_SEO.contact.title} description={PAGE_SEO.contact.description} canonical={PAGE_SEO.contact.canonical} ogImage={PAGE_SEO.contact.ogImage || OG_IMAGE} schema={contactSchema} schemaId="contact-breadcrumb-schema" />
               <div className="mt-12 md:mt-0">
                 <ContactPage displayToast={displayToast} />
               </div>
@@ -804,7 +961,7 @@ export default function App() {
           } />
           <Route path="/faq" element={
             <>
-              <Seo title={PAGE_SEO.faq.title} description={PAGE_SEO.faq.description} canonical={PAGE_SEO.faq.canonical} />
+              <Seo title={PAGE_SEO.faq.title} description={PAGE_SEO.faq.description} canonical={PAGE_SEO.faq.canonical} ogImage={PAGE_SEO.faq.ogImage || OG_IMAGE} schema={faqSchema} schemaId="faq-breadcrumb-schema" />
               <div className="mt-12 md:mt-0 pb-16">
                 <FaqPage />
               </div>
@@ -812,9 +969,20 @@ export default function App() {
           } />
           <Route path="/locations/:slug" element={<LocationDetailPage branches={branches} />} />
           <Route path="/menu/:slug" element={
-            <div className="mt-3 md:mt-0">
-              <ItemDetailPage menuItems={menuItems} isLoadingMenu={isLoadingMenu} onAdd={addDirectToCart} onConfigure={addToCart} onQuickView={openQuickView} displayToast={displayToast} />
-            </div>
+            <MenuSlugRoute
+              categories={categories}
+              menuItems={menuItems}
+              isLoadingMenu={isLoadingMenu}
+              menuFilter={menuFilter}
+              setMenuFilter={setMenuFilter}
+              addToCart={addToCart}
+              addDirectToCart={addDirectToCart}
+              searchQuery={siteSearch}
+              onSearchChange={setSiteSearch}
+              navHidden={navHidden}
+              displayToast={displayToast}
+              openQuickView={openQuickView}
+            />
           } />
           <Route path="/privacy" element={
             <>
@@ -842,7 +1010,8 @@ export default function App() {
         </Routes>
         </Suspense>
 
-        {/* Item quick-view modal — overlay only; direct visits render the full page route instead */}
+        {/* Item quick-view — bottom sheet on mobile, centered modal on desktop.
+            Overlay only; direct visits render the full page route instead. */}
         <AnimatePresence>
           {quickViewSlug && (
             <>
@@ -851,8 +1020,60 @@ export default function App() {
                 animate={{ opacity: 0.5 }}
                 exit={{ opacity: 0 }}
                 onClick={closeQuickView}
-                className="fixed inset-0 z-[55] bg-black"
+                className="fixed inset-0 z-[55] bg-black md:block hidden"
               />
+              {/* Mobile — bottom sheet (swipe-to-dismiss via drag handle) */}
+              <div className="md:hidden">
+                <BottomSheet
+                  isOpen={!!quickViewSlug}
+                  onClose={closeQuickView}
+                  title={quickViewData.item ? undefined : "Dish not found"}
+                >
+                  {quickViewData.item ? (
+                    <Suspense fallback={<div className="p-8 flex justify-center"><Loader size={64} text="Loading details..." /></div>}>
+                      <ItemDetailContent
+                        item={quickViewData.item}
+                        related={quickViewData.related}
+                        menuItems={menuItems}
+                        onAdd={(it, size, qty, bundleSelections) => {
+                          addDirectToCart(it, size, qty, bundleSelections);
+                          closeQuickView();
+                        }}
+                        onConfigure={addToCart}
+                        onQuickView={(rel) => {
+                          skipScrollTopOnce.current = true;
+                          navigate(`/menu/${itemSlug(rel)}`, {
+                            replace: true,
+                            state: { backgroundLocation },
+                          });
+                        }}
+                        displayToast={displayToast}
+                      />
+                    </Suspense>
+                  ) : !isLoadingMenu ? (
+                    <div className="text-center py-12 space-y-3">
+                      <span className="text-3xl block">🍕</span>
+                      <p className="font-bold text-sm">Dish not found</p>
+                      <button
+                        type="button"
+                        onClick={closeQuickView}
+                        className="px-6 py-2.5 rounded-full bg-[var(--pc-color-primary)] text-white text-sm font-bold cursor-pointer"
+                      >
+                        Close
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="skeleton-card">
+                      <div className="skeleton-card__image skeleton" />
+                      <div className="skeleton-card__body">
+                        <div className="skeleton-card__title skeleton" />
+                        <div className="skeleton-card__desc skeleton" />
+                      </div>
+                    </div>
+                  )}
+                </BottomSheet>
+              </div>
+              {/* Desktop — centered modal (unchanged) */}
               <motion.div
                 initial={{ opacity: 0, scale: 0.95, y: 20 }}
                 animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -861,7 +1082,7 @@ export default function App() {
                 role="dialog"
                 aria-modal="true"
                 aria-label={quickViewData.item ? quickViewData.item.name : "Dish quick view"}
-                className="fixed inset-x-3 top-[4.5rem] bottom-4 md:inset-x-auto md:left-1/2 md:-translate-x-1/2 md:top-24 md:bottom-8 md:w-[min(880px,calc(100%-3rem))] z-[56] rounded-3xl overflow-y-auto p-5 md:p-8 shadow-2xl"
+                className="hidden md:block fixed inset-x-3 top-[4.5rem] bottom-4 md:inset-x-auto md:left-1/2 md:-translate-x-1/2 md:top-24 md:bottom-8 md:w-[min(880px,calc(100%-3rem))] z-[56] rounded-3xl overflow-y-auto p-5 md:p-8 shadow-2xl"
                 style={{ background: "var(--pc-color-surface, #fff)" }}
               >
                 <button
@@ -873,23 +1094,26 @@ export default function App() {
                   <X size={16} />
                 </button>
                 {quickViewData.item ? (
-                  <ItemDetailContent
-                    item={quickViewData.item}
-                    related={quickViewData.related}
-                    onAdd={(it, size, qty) => {
-                      addDirectToCart(it, size, qty);
-                      closeQuickView();
-                    }}
-                    onConfigure={addToCart}
-                    onQuickView={(rel) => {
-                      skipScrollTopOnce.current = true;
-                      navigate(`/menu/${itemSlug(rel)}`, {
-                        replace: true,
-                        state: { backgroundLocation },
-                      });
-                    }}
-                    displayToast={displayToast}
-                  />
+                  <Suspense fallback={<div className="p-8 flex justify-center"><Loader size={64} text="Loading details..." /></div>}>
+                    <ItemDetailContent
+                      item={quickViewData.item}
+                      related={quickViewData.related}
+                      menuItems={menuItems}
+                      onAdd={(it, size, qty, bundleSelections) => {
+                        addDirectToCart(it, size, qty, bundleSelections);
+                        closeQuickView();
+                      }}
+                      onConfigure={addToCart}
+                      onQuickView={(rel) => {
+                        skipScrollTopOnce.current = true;
+                        navigate(`/menu/${itemSlug(rel)}`, {
+                          replace: true,
+                          state: { backgroundLocation },
+                        });
+                      }}
+                      displayToast={displayToast}
+                    />
+                  </Suspense>
                 ) : !isLoadingMenu ? (
                   <div className="text-center py-12 space-y-3">
                     <span className="text-3xl block">🍕</span>
@@ -1040,22 +1264,24 @@ export default function App() {
       {/* Overlays & Modals */}
       {!isAdminRoute && (
       <>
-      <OutletSelector 
-        isOpen={isOutletSelectorOpen} 
-        onClose={() => setIsOutletSelectorOpen(false)} 
-        cart={cart} 
-        onClearCart={clearCart} 
-        onShowToast={displayToast} 
-        branches={branches} 
-        onUpdateCartItem={updateCartItem}
-        menuItems={menuItems}
-        onBrowseMenu={() => {
-          setIsOutletSelectorOpen(false);
-          navigate("/menu");
-        }}
-        onAddToCart={addToCart}
-        onOrderSuccess={handleOrderSuccess}
-      />
+      <Suspense fallback={null}>
+        <OutletSelector 
+          isOpen={isOutletSelectorOpen} 
+          onClose={() => setIsOutletSelectorOpen(false)} 
+          cart={cart} 
+          onClearCart={clearCart} 
+          onShowToast={displayToast} 
+          branches={branches} 
+          onUpdateCartItem={updateCartItem}
+          menuItems={menuItems}
+          onBrowseMenu={() => {
+            setIsOutletSelectorOpen(false);
+            navigate("/menu");
+          }}
+          onAddToCart={addToCart}
+          onOrderSuccess={handleOrderSuccess}
+        />
+      </Suspense>
       
       <AnimatePresence>
         {selectedConfigureItem && (

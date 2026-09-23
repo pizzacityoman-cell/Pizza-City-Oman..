@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from "motion/react";
 import { ChevronLeft, ChevronRight, ArrowRight, Flame, Shield, Truck } from "lucide-react";
 import { HeroBanner } from "../types";
 import { getBannerAltText } from "../lib/altText";
+import { getMediaUrl } from "../lib/images";
 
 interface BannerSliderProps {
   onOrderNow: () => void;
@@ -69,10 +70,10 @@ export default function BannerSlider({ onOrderNow, banners, isLoading }: BannerS
 
   if (isLoading) {
     return (
-      <div className="w-full h-[520px] bg-neutral-900 rounded-[40px] flex items-center justify-center border border-red-500/10">
+      <div className="w-full h-[260px] bg-neutral-900 rounded-[50px] flex items-center justify-center border border-red-500/10">
         <div className="flex flex-col items-center gap-3">
-          <div className="w-12 h-12 border-4 border-red-500 border-t-transparent rounded-full animate-spin"></div>
-          <span className="text-sm font-bold text-gray-400 animate-pulse">Pre-heating Oven & Loading Banners...</span>
+          <div className="w-10 h-10 border-4 border-red-500 border-t-transparent rounded-full animate-spin"></div>
+          <span className="text-xs font-bold text-gray-400 animate-pulse">Pre-heating Oven & Loading Banners...</span>
         </div>
       </div>
     );
@@ -122,7 +123,7 @@ export default function BannerSlider({ onOrderNow, banners, isLoading }: BannerS
   const isModern = currentBanner?.stylePattern === "modern";
   const sliderHeightClass = isFullImage 
     ? "h-[220px] xs:h-[300px] sm:h-[300px] md:h-[400px] lg:h-[480px] xl:h-[550px]"
-    : "h-[460px] xs:h-[480px] sm:h-[500px] md:h-[480px] lg:h-[520px] xl:h-[550px]";
+    : "h-[460px] xs:h-[480px] sm:h-[300px] md:h-[480px] lg:h-[520px] xl:h-[550px]";
 
   return (
     <div 
@@ -155,10 +156,14 @@ export default function BannerSlider({ onOrderNow, banners, isLoading }: BannerS
                 title={currentBanner.title}
               >
                 <img
-                  src={currentBanner.image}
+                  src={getMediaUrl(currentBanner.image, 1200) || currentBanner.image}
                   alt={getBannerAltText(currentBanner)}
                   referrerPolicy="no-referrer"
+                  fetchPriority={currentIndex === 0 ? "high" : "low"}
+                  loading={currentIndex === 0 ? "eager" : "lazy"}
+                  decoding="async"
                   className="w-full h-full object-cover group-hover/fullimage:scale-[1.015] transition-transform duration-700 ease-out"
+                  onError={(e) => { e.currentTarget.style.display = "none"; }}
                 />
               </div>
             ) : (
@@ -170,10 +175,14 @@ export default function BannerSlider({ onOrderNow, banners, isLoading }: BannerS
                 {currentBanner.image && (
                   <div className="absolute inset-0 overflow-hidden">
                     <img
-                      src={currentBanner.image}
+                      src={getMediaUrl(currentBanner.image, 1200) || currentBanner.image}
                       alt={getBannerAltText(currentBanner)}
                       referrerPolicy="no-referrer"
+                      fetchPriority={currentIndex === 0 ? "high" : "low"}
+                      loading={currentIndex === 0 ? "eager" : "lazy"}
+                      decoding="async"
                       className={`w-full h-full object-cover scale-105 transition-transform duration-[8000ms] ${isModern ? "opacity-60 sm:opacity-50" : "opacity-50 sm:opacity-40"}`}
+                      onError={(e) => { e.currentTarget.closest("div.overflow-hidden")?.remove(); }}
                     />
                     <div className={`absolute inset-0 ${isModern ? "bg-gradient-to-t from-[#090302]/90 via-[#090302]/60 to-[#090302]/40 sm:bg-gradient-to-r sm:from-[#090302]/90 sm:via-[#090302]/70 sm:to-transparent" : "bg-gradient-to-r from-[#090302]/95 via-[#090302]/85 to-transparent"}`} />
                   </div>
@@ -375,7 +384,7 @@ export default function BannerSlider({ onOrderNow, banners, isLoading }: BannerS
                         <motion.img
                           animate={{ rotate: 360 }}
                           transition={{ duration: 40, repeat: Infinity, ease: "linear" }}
-                          src="https://res.cloudinary.com/dc6pr0lxh/image/upload/v1784580436/pizzaimg_d9tegb.png?auto=format&fit=crop&w=600&q=80"
+                          src="/logo-512.png"
                           referrerPolicy="no-referrer"
                           className="w-full h-full object-cover rounded-full border-4 border-yellow-500/20 shadow-2xl scale-125"
                         />
@@ -457,6 +466,7 @@ export default function BannerSlider({ onOrderNow, banners, isLoading }: BannerS
                   : "w-2.5 sm:w-2 bg-white/30 sm:bg-white/20 hover:bg-white/40"
               }`}
               title={`Go to banner slide ${index + 1}`}
+              aria-label={`Go to banner slide ${index + 1}`}
             />
           ))}
         </div>

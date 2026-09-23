@@ -26,3 +26,6 @@ public/uploads/
 
 # Local SEO audit artifacts (point-in-time reports, not source)
 pizzacityoman-audit/
+.playwright-cli/
+scratch_*.ts
+_test*.mjs

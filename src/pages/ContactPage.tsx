@@ -52,10 +52,10 @@ export default function ContactPage({ displayToast }: ContactPageProps) {
                   target="_blank"
                   rel="noopener noreferrer"
                   title={social.label}
-                  className="flex flex-col items-center gap-1.5 p-2.5 rounded-xl border border-[#D72B2B]/10 hover:bg-[var(--pc-red-500)]/5 hover:border-[var(--pc-red-500)]/30 transition-all group"
+                  className="flex flex-col items-center gap-1.5 p-2.5 rounded-xl border border-[#D72B2B]/10 hover:bg-[var(--pc-red-500)]/5 hover:border-[var(--pc-red-500)]/30 transition-all group social-card"
                 >
-                  <span className="w-9 h-9 rounded-full bg-[var(--pc-red-500)]/10 group-hover:bg-[var(--pc-red-500)] flex items-center justify-center transition-colors">
-                    <img src={social.icon} alt={social.label} className="w-4.5 h-4.5" />
+                  <span className="social-icon-circle w-9 h-9 rounded-full bg-[var(--pc-red-500)]/10 group-hover:bg-[var(--pc-red-500)] flex items-center justify-center transition-colors">
+                    <img src={social.icon} alt={social.label} className="w-4.5 h-4.5 social-icon-img" />
                   </span>
                   <span className="text-[10px] font-bold text-[var(--pc-gray-600)]">{social.label}</span>
                 </a>

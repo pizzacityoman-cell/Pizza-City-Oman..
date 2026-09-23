@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useMemo } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
-import { MenuItem } from "../types";
+import { MenuItem, Category } from "../types";
 import CategoryIcon from "./CategoryIcon";
 
 /**
@@ -20,15 +20,30 @@ export const VISUAL_CATEGORIES = [
 
 interface MenuCategorySliderProps {
   menuItems: MenuItem[];
+  categories?: Category[];
   selectedId: string;
   onSelect: (categoryId: string) => void;
 }
 
 /** Visual category cards slider — shared by the menu page and the homepage. */
-export default function MenuCategorySlider({ selectedId, onSelect }: MenuCategorySliderProps) {
+export default function MenuCategorySlider({ categories, selectedId, onSelect }: MenuCategorySliderProps) {
   const visualSliderRef = useRef<HTMLDivElement>(null);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(true);
+
+  const visualCategories = useMemo(() => {
+    if (categories && categories.length > 0) {
+      const activeCats = categories
+        .filter((c) => c.active !== false && c.showOnMenu !== false)
+        .sort((a, b) => (a.displayOrder ?? 0) - (b.displayOrder ?? 0));
+      return [
+        { id: "all", label: "All Items" },
+        { id: "featured", label: "Featured" },
+        ...activeCats.map((c) => ({ id: c.slug, label: c.name })),
+      ];
+    }
+    return VISUAL_CATEGORIES;
+  }, [categories]);
 
   const checkVisualScroll = () => {
     const el = visualSliderRef.current;
@@ -73,7 +88,7 @@ export default function MenuCategorySlider({ selectedId, onSelect }: MenuCategor
         onScroll={checkVisualScroll}
         className="cat-rail flex gap-3 sm:gap-5 overflow-x-auto no-scrollbar scroll-smooth snap-x snap-proximity py-2 px-1"
       >
-        {VISUAL_CATEGORIES.map((cat) => {
+        {visualCategories.map((cat) => {
           const isSelected = selectedId === cat.id;
 
           return (

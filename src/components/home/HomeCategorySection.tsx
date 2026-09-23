@@ -13,6 +13,7 @@ interface HomeCategorySectionProps {
   onOrder: (item: MenuItem) => void;
   displayToast?: (msg: string) => void;
   onQuickView?: (item: MenuItem) => void;
+  categorySlug?: string;
 }
 
 const PAGE_SIZE = 6;
@@ -26,6 +27,7 @@ export default function HomeCategorySection({
   onOrder,
   displayToast,
   onQuickView,
+  categorySlug,
 }: HomeCategorySectionProps) {
   if (!isLoading && items.length === 0) return null;
   return (
@@ -41,7 +43,7 @@ export default function HomeCategorySection({
           <p className="text-sm text-[var(--pc-gray-500)] max-w-xl font-medium">{subtitle}</p>
         </div>
         <Link
-          to="/menu"
+          to={categorySlug ? `/menu/${categorySlug}` : "/menu"}
           className="shrink-0 inline-flex items-center gap-1.5 text-sm font-black text-[var(--pc-red-500)] hover:text-[var(--pc-amber-400)] transition-colors"
         >
           View All Items <ArrowRight size={16} />
@@ -51,7 +53,7 @@ export default function HomeCategorySection({
       {isLoading ? (
         <div className="menu-grid" aria-hidden="true">
           {Array.from({ length: PAGE_SIZE }).map((_, i) => (
-            <div key={i} className={i >= 3 ? "hidden md:block" : undefined}>
+            <div key={i} className={i >= 4 ? "hidden md:block" : undefined}>
               <div className="skeleton-card">
                 <div className="skeleton-card__image skeleton" />
                 <div className="skeleton-card__body">
@@ -71,7 +73,7 @@ export default function HomeCategorySection({
           {items.slice(0, PAGE_SIZE).map((item, index) => (
             <React.Fragment key={item._id}>
               {/* Beyond 3 items: desktop-only so every viewport ends on a full row */}
-              <div className={index >= 3 ? "hidden md:contents" : "contents"}>
+              <div className={index >= 4 ? "hidden md:contents" : "contents"}>
                 <MenuCard
                   item={item}
                   onOrder={onOrder}
