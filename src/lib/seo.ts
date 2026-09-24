@@ -1,12 +1,12 @@
 export const SITE_URL = "https://pizzacityoman.com";
-export const OG_IMAGE = "https://pizzacityoman.com/og-image.png";
+export const OG_IMAGE = "https://pizzacityoman.com/og-image.webp";
 
 // Per-page social preview images — upload these to /public/ or use Cloudinary URLs.
 // Dimensions should be 1200×630 for best OG compatibility.
-const OG_MENU      = `${SITE_URL}/og-menu.png`;
-const OG_LOCATIONS = `${SITE_URL}/og-locations.png`;
-const OG_CONTACT   = `${SITE_URL}/og-contact.png`;
-const OG_FAQ       = `${SITE_URL}/og-faq.png`;
+const OG_MENU      = `${SITE_URL}/og-menu.webp`;
+const OG_LOCATIONS = `${SITE_URL}/og-locations.webp`;
+const OG_CONTACT   = `${SITE_URL}/og-contact.webp`;
+const OG_FAQ       = `${SITE_URL}/og-faq.webp`;
 
 export interface PageSeo {
   title: string;
@@ -20,14 +20,14 @@ export const PAGE_SEO: Record<string, PageSeo> = {
   home: {
     title: "Pizza City Oman — Handcrafted Pizza | 30-Min Delivery",
     description:
-      "Handcrafted oven-baked pizzas, sides & desserts delivered hot in ~30 minutes across Oman. Open daily 11 AM – 2 AM. Order via WhatsApp: +968 9692 8714.",
+      "Handcrafted oven-baked pizzas,burgers,pastas,sides,drinks & desserts delivered hot in ~30 minutes across Oman. Open daily 11 AM – 2 AM. Order via WhatsApp: +968 9692 8714.",
     canonical: `${SITE_URL}/`,
     ogImage: OG_IMAGE,
   },
   menu: {
     title: "Pizza Menu Oman — Prices & 30-Min Delivery | Pizza City",
     description:
-      "Full Pizza City Oman menu with prices in OMR: handcrafted pizzas, combos, sides, drinks & desserts. 30-min delivery. Order via WhatsApp.",
+      "Full Pizza City Oman menu with prices in OMR: handcrafted pizzas, combos, burgers, pastas, sides, drinks & desserts. 30-min delivery. Order now.",
     canonical: `${SITE_URL}/menu`,
     ogImage: OG_MENU,
   },
