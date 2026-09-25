@@ -32,7 +32,7 @@ export default function ItemDetailPage({
 
   if (isLoadingMenu && !item) {
     return (
-      <div className="container mx-auto px-4 md:px-8 pb-16">
+      <div className="container mx-auto px-4 md:px-8 pt-20 md:pt-8 pb-16">
         <div className="skeleton-card max-w-3xl mx-auto mt-6">
           <div className="skeleton-card__image skeleton" />
           <div className="skeleton-card__body">
@@ -46,7 +46,7 @@ export default function ItemDetailPage({
 
   if (!item) {
     return (
-      <div className="container mx-auto px-4 md:px-8 pb-16">
+      <div className="container mx-auto px-4 md:px-8 pt-20 md:pt-8 pb-16">
         <Seo
           title="Dish Not Found | Pizza City Oman"
           description="This dish is no longer on the menu. Browse the full Pizza City Oman menu."
@@ -94,7 +94,7 @@ export default function ItemDetailPage({
   ];
 
   return (
-    <div className="container mx-auto px-4 md:px-8 pb-16 animate-fadeIn">
+    <div className="container mx-auto px-4 md:px-8 pt-24 md:pt-8 pb-16 animate-fadeIn">
       <Seo
         title={`${item.name} — Price & Order Online | Pizza City Oman`}
         description={`${item.name}: ${(item.description || "").replace(/\s+/g, " ").trim().slice(0, 120)} Order online from Pizza City Oman via WhatsApp.`}

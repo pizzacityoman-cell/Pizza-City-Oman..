@@ -253,7 +253,7 @@ export default function LocationDetailPage({ branches }: LocationDetailPageProps
       className="min-h-screen pb-16"
     >
       {/* ─── Back navigation ─── */}
-      <div className="container mx-auto px-4 md:px-8 pt-4 pb-2">
+      <div className="container mx-auto px-4 md:px-8 pt-24 md:pt-8 pb-2">
         <Link
           to="/locations"
           className="inline-flex items-center gap-2 text-sm font-bold text-[var(--pc-gray-500)] hover:text-[var(--pc-red-500)] transition-colors"
