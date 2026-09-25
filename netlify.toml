@@ -10,9 +10,7 @@
   NODE_VERSION = "20"
   NPM_FLAGS = "--prefer-offline --no-audit"
   SECRETS_SCAN_OMIT_KEYS = "ADMIN_USERNAME,ADMIN_PASSWORD,CLOUDFLARE_R2_ACCOUNT_ID,CLOUDFLARE_R2_ACCESS_KEY_ID,CLOUDFLARE_R2_SECRET_ACCESS_KEY,CLOUDFLARE_R2_BUCKET_NAME,CLOUDFLARE_R2_PUBLIC_URL,JWT_SECRET,JWT_REFRESH_SECRET,MONGODB_URI"
-
-  [build]
-  SECRETS_SCAN_ENABLED = "false"
+  
 
 # ------------------------------------------------------------------------------
 # API & Backend Proxying (Railway Backend)
