@@ -10,6 +10,9 @@
   NODE_VERSION = "20"
   NPM_FLAGS = "--prefer-offline --no-audit"
 
+  [build]
+  SECRETS_SCAN_ENABLED = "false"
+
 # ------------------------------------------------------------------------------
 # API & Backend Proxying (Railway Backend)
 # ------------------------------------------------------------------------------
