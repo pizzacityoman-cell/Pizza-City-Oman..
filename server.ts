@@ -22,6 +22,7 @@ import {
 
 import { getEffectiveBasePrice, getOptimizedUnitPrice, getDefaultSizes } from "./shared/priceUtils.js";
 import type { MenuItemSize } from "./shared/priceUtils.js";
+import { DEFAULT_DELIVERY_RADIUS_KM } from "./shared/locationConstants.js";
 
 dotenv.config();
 
@@ -99,6 +100,13 @@ const loginRateLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 10, // limit each IP to 10 attempts per window
   message: { error: "Too many login attempts from this IP, please try again after 15 minutes." }
+});
+
+// Rate limiting for location geocode proxy
+const geocodeRateLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: 30, // limit each IP to 30 requests per minute
+  message: { error: "Too many address searches, please wait a minute or use GPS." },
 });
 
 // ==========================================
@@ -387,16 +395,53 @@ const SEED_PROMOS = [
   { code: "FLAT1OMR", discountType: "flat", discountValue: 1.0, minOrderAmount: 5, isActive: true }
 ];
 
+function calculateDistanceKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  if (!Number.isFinite(lat1) || !Number.isFinite(lon1) || !Number.isFinite(lat2) || !Number.isFinite(lon2)) {
+    return Infinity;
+  }
+  const R = 6371; // Earth radius in km
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLon = ((lon2 - lon1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos((lat1 * Math.PI) / 180) *
+      Math.cos((lat2 * Math.PI) / 180) *
+      Math.sin(dLon / 2) *
+      Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return Number((R * c).toFixed(2));
+}
+
+function parseCoordinatesFromText(text: string): { latitude: number; longitude: number } | null {
+  if (!text || typeof text !== "string") return null;
+  const clean = text.trim();
+  const rawMatch = clean.match(/^(-?\d{1,2}(?:\.\d+)?)\s*,\s*(-?\d{1,3}(?:\.\d+)?)$/);
+  if (rawMatch) {
+    const lat = parseFloat(rawMatch[1]);
+    const lon = parseFloat(rawMatch[2]);
+    if (lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180) {
+      return { latitude: lat, longitude: lon };
+    }
+  }
+  const atMatch = clean.match(/@(-?\d{1,2}\.\d+),(-?\d{1,3}\.\d+)/);
+  if (atMatch) return { latitude: parseFloat(atMatch[1]), longitude: parseFloat(atMatch[2]) };
+  const pbMatch = clean.match(/!3d(-?\d{1,2}\.\d+)!4d(-?\d{1,3}\.\d+)/);
+  if (pbMatch) return { latitude: parseFloat(pbMatch[1]), longitude: parseFloat(pbMatch[2]) };
+  const queryMatch = clean.match(/[?&](?:q|ll|center)=(-?\d{1,2}\.\d+),(-?\d{1,3}\.\d+)/);
+  if (queryMatch) return { latitude: parseFloat(queryMatch[1]), longitude: parseFloat(queryMatch[2]) };
+  return null;
+}
+
 // Configuration variables
 const SEED_BRANCHES = [
-  { name: "Nizwa", phone: "+968 96928714", whatsapp: "+968 96928714", address: "Nizwa 611, Oman.", map: "https://maps.app.goo.gl/y6cnhd1N6XvHcpGR7", geo: "Nizwa", hours: "Daily 10 AM – 1 AM", delivery: true, isActive: true, image: "https://res.cloudinary.com/dc6pr0lxh/image/upload/v1787987586/restaurant_banners/hrutdvdixlp8mmdoalrx.jpg", altText: "Pizza City Nizwa Outlet in Nizwa, Oman." },
-  { name: "Samail", phone: "+968 96928716", whatsapp: "+968 96928716", address: "Al Jarda-Saumara Rd, Samail, Ad Dakhiliyah Governorate, Oman", map: "https://maps.app.goo.gl/tBUSRtDM4dDb8NUU6", geo: "Samail", hours: "Daily 11 AM – 1 AM", delivery: true, isActive: true, image: "https://res.cloudinary.com/dc6pr0lxh/image/upload/v1788001009/restaurant_banners/ybaxkzas3oyzcr4nluyw.jpg", altText: "Pizza City Samail Outlet." },
-  { name: "Sur", phone: "+968 96928717", whatsapp: "+968 96928717", address: "Sur Al Sharqiyah Government, City 411, Oman", map: "https://maps.app.goo.gl/KVc8BGDoQoH9jQ4G6", geo: "Sur", hours: "Daily 11 AM – 1 AM", delivery: true, isActive: true, image: "https://res.cloudinary.com/dc6pr0lxh/image/upload/v1788000815/restaurant_banners/ygyetjw6i9lc5wk5rfv7.jpg", altText: "Pizza City Sur Outlet." },
-  { name: "Quriyat", phone: "+968 91446573", whatsapp: "+968 91446573", address: "Lake Park, Qurayyat 120, Oman.", map: "https://maps.app.goo.gl/25HD9trNYvp3ZkfG8", geo: "Quriyat", hours: "Daily 11 AM – 1 AM", delivery: true, isActive: true, image: "https://res.cloudinary.com/dc6pr0lxh/image/upload/v1788000406/restaurant_banners/qssk5fr1augcyhaimm1y.jpg", altText: "Pizza City Quriyat Outlet in Quriyat, Oman." },
-  { name: "Fanja", phone: "+968 96749772", whatsapp: "+968 96749772", address: "opposite Hour Shopping Center, Fanja 623, Oman", map: "https://maps.app.goo.gl/NHzt85nLu6jG8EZn6", geo: "Fanja", hours: "Daily 10 AM – 1 AM", delivery: true, isActive: true, image: "https://res.cloudinary.com/dc6pr0lxh/image/upload/v1788000191/restaurant_banners/tzmeuhwpyblukjokj8nl.jpg", altText: "Pizza City Outlet in Fanja, Oman." },
-  { name: "Al Khoud", phone: "+968 96928715", whatsapp: "+968 96928715", address: "Al Khoud 6, Muscat, Oman", map: "https://www.google.com/maps/place/Pizza+City+Al+khud+06/@23.5753021,58.179791,17z/data=!3m1!4b1!4m6!3m5!1s0x3e8de30001646f7d:0x8ffc20c1c162ff1e!8m2!3d23.5752972!4d58.1823659!16s%2Fg%2F11nq95z6px?entry=ttu&g_ep=EgoyMDI2MDcwNy4wIKXMDSoASAFQAw%3D%3D", geo: "Al Khoud", hours: "Daily 11 AM – 11 PM", delivery: true, isActive: true, image: "https://res.cloudinary.com/dc6pr0lxh/image/upload/v1788000844/restaurant_banners/gq0zbhq9633pwes7hvrl.jpg", altText: "Pizza City Al Khoud Outlet in Muscat, Oman." },
-  { name: "Ibri", phone: "+968 96928719", whatsapp: "+968 96928719", address: "Ibri, Oman", map: "https://maps.app.goo.gl/RcfYoHZfo1w5BHFu5", geo: "Ibri", hours: "Daily 11 AM – 02 AM", delivery: false, isActive: true, image: "https://res.cloudinary.com/dc6pr0lxh/image/upload/v1787910939/restaurant_banners/fkq4fucarx3k9yfdwd2t.jpg", altText: "Pizza City Ibri Outlet in Ibri, Oman." },
-  { name: "Mabela", phone: "+968 96928720", whatsapp: "+968 96928720", address: "Al Maabilaah, Saeeb, Oman", map: "https://maps.app.goo.gl/h7dcRr2ZMrkupj7q8", geo: "Mabela", hours: "Daily 11 AM – 02 AM", delivery: true, isActive: true, image: "https://res.cloudinary.com/dc6pr0lxh/image/upload/v1788090589/restaurant_banners/svno1zdh4qxcodn6grqb.jpg", altText: "Pizza City Mabela Outlet in Saeeb, Oman." },
+  { name: "Nizwa", phone: "+968 96928714", whatsapp: "+968 96928714", address: "Nizwa 611, Oman.", map: "https://maps.app.goo.gl/y6cnhd1N6XvHcpGR7", geo: "Nizwa", hours: "Daily 10 AM – 1 AM", delivery: true, isActive: true, image: "https://res.cloudinary.com/dc6pr0lxh/image/upload/v1787987586/restaurant_banners/hrutdvdixlp8mmdoalrx.jpg", altText: "Pizza City Nizwa Outlet in Nizwa, Oman.", latitude: 22.9333, longitude: 57.5333, deliveryRadiusKm: DEFAULT_DELIVERY_RADIUS_KM },
+  { name: "Samail", phone: "+968 96928716", whatsapp: "+968 96928716", address: "Al Jarda-Saumara Rd, Samail, Ad Dakhiliyah Governorate, Oman", map: "https://maps.app.goo.gl/tBUSRtDM4dDb8NUU6", geo: "Samail", hours: "Daily 11 AM – 1 AM", delivery: true, isActive: true, image: "https://res.cloudinary.com/dc6pr0lxh/image/upload/v1788001009/restaurant_banners/ybaxkzas3oyzcr4nluyw.jpg", altText: "Pizza City Samail Outlet.", latitude: 23.3056, longitude: 57.9944, deliveryRadiusKm: DEFAULT_DELIVERY_RADIUS_KM },
+  { name: "Sur", phone: "+968 96928717", whatsapp: "+968 96928717", address: "Sur Al Sharqiyah Government, City 411, Oman", map: "https://maps.app.goo.gl/KVc8BGDoQoH9jQ4G6", geo: "Sur", hours: "Daily 11 AM – 1 AM", delivery: true, isActive: true, image: "https://res.cloudinary.com/dc6pr0lxh/image/upload/v1788000815/restaurant_banners/ygyetjw6i9lc5wk5rfv7.jpg", altText: "Pizza City Sur Outlet.", latitude: 22.5667, longitude: 59.5289, deliveryRadiusKm: DEFAULT_DELIVERY_RADIUS_KM },
+  { name: "Quriyat", phone: "+968 91446573", whatsapp: "+968 91446573", address: "Lake Park, Qurayyat 120, Oman.", map: "https://maps.app.goo.gl/25HD9trNYvp3ZkfG8", geo: "Quriyat", hours: "Daily 11 AM – 1 AM", delivery: true, isActive: true, image: "https://res.cloudinary.com/dc6pr0lxh/image/upload/v1788000406/restaurant_banners/qssk5fr1augcyhaimm1y.jpg", altText: "Pizza City Quriyat Outlet in Quriyat, Oman.", latitude: 23.2644, longitude: 58.9133, deliveryRadiusKm: DEFAULT_DELIVERY_RADIUS_KM },
+  { name: "Fanja", phone: "+968 96749772", whatsapp: "+968 96749772", address: "opposite Hour Shopping Center, Fanja 623, Oman", map: "https://maps.app.goo.gl/NHzt85nLu6jG8EZn6", geo: "Fanja", hours: "Daily 10 AM – 1 AM", delivery: true, isActive: true, image: "https://res.cloudinary.com/dc6pr0lxh/image/upload/v1788000191/restaurant_banners/tzmeuhwpyblukjokj8nl.jpg", altText: "Pizza City Outlet in Fanja, Oman.", latitude: 23.4500, longitude: 58.1167, deliveryRadiusKm: DEFAULT_DELIVERY_RADIUS_KM },
+  { name: "Al Khoud", phone: "+968 96928715", whatsapp: "+968 96928715", address: "Al Khoud 6, Muscat, Oman", map: "https://www.google.com/maps/place/Pizza+City+Al+khud+06/@23.5753021,58.179791,17z/data=!3m1!4b1!4m6!3m5!1s0x3e8de30001646f7d:0x8ffc20c1c162ff1e!8m2!3d23.5752972!4d58.1823659!16s%2Fg%2F11nq95z6px?entry=ttu&g_ep=EgoyMDI2MDcwNy4wIKXMDSoASAFQAw%3D%3D", geo: "Al Khoud", hours: "Daily 11 AM – 11 PM", delivery: true, isActive: true, image: "https://res.cloudinary.com/dc6pr0lxh/image/upload/v1788000844/restaurant_banners/gq0zbhq9633pwes7hvrl.jpg", altText: "Pizza City Al Khoud Outlet in Muscat, Oman.", latitude: 23.5753, longitude: 58.1824, deliveryRadiusKm: DEFAULT_DELIVERY_RADIUS_KM },
+  { name: "Ibri", phone: "+968 96928719", whatsapp: "+968 96928719", address: "Ibri, Oman", map: "https://maps.app.goo.gl/RcfYoHZfo1w5BHFu5", geo: "Ibri", hours: "Daily 11 AM – 02 AM", delivery: false, isActive: true, image: "https://res.cloudinary.com/dc6pr0lxh/image/upload/v1787910939/restaurant_banners/fkq4fucarx3k9yfdwd2t.jpg", altText: "Pizza City Ibri Outlet in Ibri, Oman.", latitude: 23.2307, longitude: 56.5160, deliveryRadiusKm: DEFAULT_DELIVERY_RADIUS_KM },
+  { name: "Mabela", phone: "+968 96928720", whatsapp: "+968 96928720", address: "Al Maabilaah, Saeeb, Oman", map: "https://maps.app.goo.gl/h7dcRr2ZMrkupj7q8", geo: "Mabela", hours: "Daily 11 AM – 02 AM", delivery: true, isActive: true, image: "https://res.cloudinary.com/dc6pr0lxh/image/upload/v1788090589/restaurant_banners/svno1zdh4qxcodn6grqb.jpg", altText: "Pizza City Mabela Outlet in Saeeb, Oman.", latitude: 23.6333, longitude: 58.1167, deliveryRadiusKm: DEFAULT_DELIVERY_RADIUS_KM },
 ];
 
 // Configuration variables
@@ -487,6 +532,15 @@ const BundleSelectionSubSchema = new mongoose.Schema({
   items: [BundleSelectionItemSubSchema],
 }, { _id: false, id: false });
 
+const DeliveryLocationSubSchema = new mongoose.Schema({
+  latitude: { type: Number, required: true },
+  longitude: { type: Number, required: true },
+  accuracy: { type: Number },
+  address: { type: String },
+  source: { type: String, enum: ["gps", "manual"], default: "gps" },
+  distanceKm: { type: Number },
+}, { _id: false, id: false });
+
 const OrderSchema = new mongoose.Schema({
   items: [
     {
@@ -505,6 +559,8 @@ const OrderSchema = new mongoose.Schema({
     notes: { type: String },
   },
   outlet: { type: String, required: true },
+  orderType: { type: String, enum: ["delivery", "pickup"], default: "delivery" },
+  deliveryLocation: DeliveryLocationSubSchema,
   status: { type: String, default: "pending", enum: ["pending", "preparing", "out-for-delivery", "delivered", "cancelled"] },
   subtotal: { type: Number, required: true },
   discountAmt: { type: Number, default: 0 },
@@ -548,6 +604,9 @@ const BranchSchema = new mongoose.Schema({
   isActive: { type: Boolean, default: true },
   image: { type: String, default: "" },
   altText: { type: String, default: "" },
+  latitude: { type: Number },
+  longitude: { type: Number },
+  deliveryRadiusKm: { type: Number, default: DEFAULT_DELIVERY_RADIUS_KM },
 });
 
 const MongoBranch = mongoose.model("Branch", BranchSchema);
@@ -670,6 +729,39 @@ async function seedMongoIfEmpty() {
     if (branchCount === 0) {
       await MongoBranch.insertMany(SEED_BRANCHES);
       console.log("Seeded database with default Pizza City branches.");
+    } else {
+      // Backfill coordinates & delivery radius for existing branches if missing
+      const branchesToMigrate = await MongoBranch.find({
+        $or: [
+          { latitude: { $exists: false } },
+          { latitude: null },
+          { longitude: { $exists: false } },
+          { longitude: null },
+          { deliveryRadiusKm: { $exists: false } },
+          { deliveryRadiusKm: null },
+        ],
+      });
+      if (branchesToMigrate.length > 0) {
+        for (const branch of branchesToMigrate) {
+          const seedMatch = SEED_BRANCHES.find(
+            (s) => s.name.toLowerCase() === branch.name.toLowerCase()
+          );
+          const parsedMap = branch.map ? parseCoordinatesFromText(branch.map) : null;
+          const lat = branch.latitude ?? (seedMatch?.latitude || parsedMap?.latitude);
+          const lon = branch.longitude ?? (seedMatch?.longitude || parsedMap?.longitude);
+          const radius = branch.deliveryRadiusKm ?? (seedMatch?.deliveryRadiusKm || DEFAULT_DELIVERY_RADIUS_KM);
+
+          const updates: any = {};
+          if (Number.isFinite(lat) && (branch.latitude === undefined || branch.latitude === null)) updates.latitude = lat;
+          if (Number.isFinite(lon) && (branch.longitude === undefined || branch.longitude === null)) updates.longitude = lon;
+          if (branch.deliveryRadiusKm === undefined || branch.deliveryRadiusKm === null) updates.deliveryRadiusKm = radius;
+
+          if (Object.keys(updates).length > 0) {
+            await MongoBranch.updateOne({ _id: branch._id }, { $set: updates });
+          }
+        }
+        console.log(`Migrated ${branchesToMigrate.length} branches with coordinates and delivery radius.`);
+      }
     }
 
     if ((await MongoUser.countDocuments()) === 0) {
@@ -1259,9 +1351,68 @@ app.get("/api/banners", async (req, res) => {
   }
 });
 
+// GET /api/location/geocode — Server-side OpenStreetMap Nominatim proxy
+let lastNominatimRequestTime = 0;
+app.get("/api/location/geocode", geocodeRateLimiter, async (req, res) => {
+  const query = typeof req.query.q === "string" ? req.query.q.trim() : "";
+  if (!query) {
+    return res.status(400).json({ error: "Address query is required." });
+  }
+
+  // Throttle to respect Nominatim policy of max 1 request/second
+  const now = Date.now();
+  const elapsed = now - lastNominatimRequestTime;
+  if (elapsed < 1000) {
+    await new Promise((r) => setTimeout(r, 1000 - elapsed));
+  }
+  lastNominatimRequestTime = Date.now();
+
+  const searchQuery = query.toLowerCase().includes("oman") ? query : `${query}, Oman`;
+  const nominatimUrl = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(
+    searchQuery
+  )}&countrycodes=om&limit=1&addressdetails=1`;
+
+  try {
+    const response = await fetch(nominatimUrl, {
+      headers: {
+        Accept: "application/json",
+        "User-Agent": "PizzaCityOman-DeliveryApp/1.0 (https://pizzacityoman.com; contact: info@pizzacityoman.com)",
+      },
+      signal: AbortSignal.timeout(8000),
+    });
+
+    if (!response.ok) {
+      return res.status(502).json({ error: `Geocoding upstream returned status ${response.status}.` });
+    }
+
+    const data = await response.json();
+    if (Array.isArray(data) && data.length > 0) {
+      const first = data[0];
+      const lat = parseFloat(first.lat);
+      const lon = parseFloat(first.lon);
+      if (Number.isFinite(lat) && Number.isFinite(lon)) {
+        return res.json({
+          latitude: lat,
+          longitude: lon,
+          address: first.display_name || query,
+        });
+      }
+    }
+
+    return res.status(404).json({
+      error: `Could not locate "${query}" in Oman. Please try specifying the wilayat/area name or use GPS.`,
+    });
+  } catch (err: any) {
+    if (err.name === "TimeoutError") {
+      return res.status(504).json({ error: "Address lookup timed out. Please try again or use GPS." });
+    }
+    return res.status(500).json({ error: "Geocoding error: " + err.message });
+  }
+});
+
 // POST /api/orders — place new order, save to DB, trigger pre-filled WhatsApp link URL (with rate limiting)
 app.post("/api/orders", orderRateLimiter, requireDb, async (req, res) => {
-  const { items, customer, outlet, promoCode } = req.body;
+  const { items, customer, outlet, promoCode, deliveryLocation, orderType = "delivery" } = req.body;
 
   if (!items || !Array.isArray(items) || items.length === 0) {
     return res.status(400).json({ error: "Order must contain at least one pizza or menu item." });
@@ -1516,22 +1667,82 @@ app.post("/api/orders", orderRateLimiter, requireDb, async (req, res) => {
     const requestedOutlet = normalizeOutletName(outlet);
     let foundBranchName = requestedOutlet;
 
-    // Look up branch in MongoDB to get WhatsApp/Phone number.
+    // Look up branch in MongoDB to get WhatsApp/Phone number & location details.
     // Phone is ALWAYS sourced from the branch record — never a static map.
-    const dbBranch = await MongoBranch.findOne({ name: { $regex: new RegExp(`^${escapeRegex(requestedOutlet)}$`, "i") } });
-    if (dbBranch) {
-      targetPhone = dbBranch.whatsapp || dbBranch.phone;
-      foundBranchName = dbBranch.name;
+    const dbBranch: any = await MongoBranch.findOne({ name: { $regex: new RegExp(`^${escapeRegex(requestedOutlet)}$`, "i") } });
+    if (!dbBranch) {
+      return res.status(400).json({ error: `Valid branch is required. Could not find active branch matching "${outlet}".` });
     }
 
+    if (dbBranch.isActive === false) {
+      return res.status(400).json({ error: `The ${dbBranch.name} outlet is currently closed and not accepting orders.` });
+    }
+
+    targetPhone = dbBranch.whatsapp || dbBranch.phone;
+    foundBranchName = dbBranch.name;
+
     if (!targetPhone) {
-      return res.status(400).json({ error: `Valid branch is required. Could not find active branch matching "${outlet}".` });
+      return res.status(400).json({ error: `The ${dbBranch.name} outlet has no valid contact phone configured.` });
+    }
+
+    // 3. Location-aware delivery radius validation (Server calculation is authoritative)
+    const isPickup = orderType === "pickup";
+    let validatedDeliveryLocation: any = undefined;
+    let distanceInfoText = "";
+
+    if (!isPickup && deliveryLocation && typeof deliveryLocation === "object") {
+      const lat = Number(deliveryLocation.latitude);
+      const lon = Number(deliveryLocation.longitude);
+
+      if (!Number.isFinite(lat) || !Number.isFinite(lon) || lat < -90 || lat > 90 || lon < -180 || lon > 180) {
+        return res.status(400).json({ error: "Invalid delivery coordinates provided." });
+      }
+
+      if (dbBranch.delivery === false) {
+        return res.status(400).json({
+          error: `The ${dbBranch.name} outlet only supports pick-up orders and does not provide delivery service.`
+        });
+      }
+
+      const branchLat = dbBranch.latitude ?? (dbBranch.map ? parseCoordinatesFromText(dbBranch.map)?.latitude : undefined);
+      const branchLon = dbBranch.longitude ?? (dbBranch.map ? parseCoordinatesFromText(dbBranch.map)?.longitude : undefined);
+
+      if (!Number.isFinite(branchLat) || !Number.isFinite(branchLon)) {
+        return res.status(400).json({
+          error: `The ${dbBranch.name} outlet does not have valid GPS coordinates configured for delivery.`
+        });
+      }
+
+      const serverDistanceKm = calculateDistanceKm(lat, lon, branchLat, branchLon);
+      const maxRadiusKm = Number(dbBranch.deliveryRadiusKm) || DEFAULT_DELIVERY_RADIUS_KM;
+
+      if (serverDistanceKm > maxRadiusKm) {
+        return res.status(400).json({
+          error: `Your delivery location is outside the delivery area for ${dbBranch.name} (${serverDistanceKm.toFixed(1)} km away; maximum delivery radius is ${maxRadiusKm} km). Please select an outlet closer to you.`
+        });
+      }
+
+      validatedDeliveryLocation = {
+        latitude: lat,
+        longitude: lon,
+        accuracy: Number.isFinite(Number(deliveryLocation.accuracy)) ? Number(deliveryLocation.accuracy) : undefined,
+        address: typeof deliveryLocation.address === "string" ? deliveryLocation.address.trim() : undefined,
+        source: deliveryLocation.source === "manual" ? "manual" : "gps",
+        distanceKm: serverDistanceKm,
+      };
+
+      distanceInfoText =
+        `📍 Delivery Location: ${validatedDeliveryLocation.address || "GPS Position"}\n` +
+        `📏 Distance from Outlet: ${serverDistanceKm.toFixed(2)} km\n` +
+        `🗺️ Map: https://www.google.com/maps?q=${lat},${lon}\n`;
     }
 
     const newOrder = new MongoOrder({
       items: computedItems,
       customer,
       outlet: foundBranchName,
+      orderType: isPickup ? "pickup" : "delivery",
+      deliveryLocation: validatedDeliveryLocation,
       subtotal,
       discountAmt,
       promoCode: appliedCode,
@@ -1571,6 +1782,9 @@ app.post("/api/orders", orderRateLimiter, requireDb, async (req, res) => {
       `📞 Phone Number: ${customer.phone}\n` +
       (customer.email ? `📧 Email: ${customer.email}\n` : "") +
       (customer.notes ? `📝 Special Notes: ${customer.notes}\n` : "") +
+      (isPickup
+        ? `\n🛍️ Order Type: Self Pick-Up\n📍 Pick-up Outlet: Pizza City ${foundBranchName}\n🏢 Address: ${dbBranch.address || ""}\n${dbBranch.map ? `🗺️ Map: ${dbBranch.map}\n` : ""}`
+        : (distanceInfoText ? `\n${distanceInfoText}` : "")) +
       `\n` +
       `Please confirm receipt and start preparing my perfect slice! Thank you.`;
 
@@ -1596,7 +1810,10 @@ app.post("/api/orders", orderRateLimiter, requireDb, async (req, res) => {
         }).join(", "),
         total: savedOrder.total,
         status: savedOrder.status,
-        notes: savedOrder.customer.notes || ""
+        notes: savedOrder.customer.notes || "",
+        deliveryAddress: validatedDeliveryLocation?.address || "",
+        distanceKm: validatedDeliveryLocation?.distanceKm ?? "",
+        mapUrl: validatedDeliveryLocation ? `https://www.google.com/maps?q=${validatedDeliveryLocation.latitude},${validatedDeliveryLocation.longitude}` : ""
       };
       sendToGoogleSheets(orderPayload).catch(err => console.error("Sheets sync error:", err));
     }
@@ -2148,14 +2365,14 @@ app.post("/admin/api/menu", verifyToken, requireSuperAdmin, requireDb, async (re
 
 // PATCH /admin/api/menu/reorder — bulk reorder menu items
 app.patch("/admin/api/menu/reorder", verifyToken, requireSuperAdmin, requireDb, async (req, res) => {
-  const { orders } = req.body; // Array of { id: string, displayOrder: number }
-  if (!Array.isArray(orders)) {
-    return res.status(400).json({ error: "orders array is required." });
+  const list = req.body.orders || req.body.items || (Array.isArray(req.body) ? req.body : undefined);
+  if (!Array.isArray(list)) {
+    return res.status(400).json({ error: "orders or items array is required." });
   }
   try {
-    const bulkOps = orders.map((item: any) => ({
+    const bulkOps = list.map((item: any) => ({
       updateOne: {
-        filter: { _id: item.id },
+        filter: { _id: item.id || item._id },
         update: { $set: { displayOrder: Number(item.displayOrder) || 0 } },
       },
     }));
@@ -2445,13 +2662,18 @@ app.patch("/admin/api/branches/:id/toggle", verifyToken, requireSuperAdmin, requ
 
 // POST /admin/api/branches — add a new branch (Requires basic auth)
 app.post("/admin/api/branches", verifyToken, requireSuperAdmin, requireDb, async (req, res) => {
-  const { name, phone, whatsapp, address, map, geo, hours, delivery, isActive, image, altText } = req.body;
+  const { name, phone, whatsapp, address, map, geo, hours, delivery, isActive, image, altText, latitude, longitude, deliveryRadiusKm } = req.body;
   if (!name || !phone || !whatsapp || !address) {
     return res.status(400).json({ error: "Branch name, phone, whatsapp, and address are required." });
   }
 
   try {
-    const payload = {
+    const parsedCoords = map ? parseCoordinatesFromText(map) : null;
+    const lat = Number.isFinite(Number(latitude)) ? Number(latitude) : parsedCoords?.latitude;
+    const lon = Number.isFinite(Number(longitude)) ? Number(longitude) : parsedCoords?.longitude;
+    const radius = Number.isFinite(Number(deliveryRadiusKm)) ? Number(deliveryRadiusKm) : DEFAULT_DELIVERY_RADIUS_KM;
+
+    const payload: any = {
       name,
       phone,
       whatsapp,
@@ -2463,6 +2685,9 @@ app.post("/admin/api/branches", verifyToken, requireSuperAdmin, requireDb, async
       isActive: isActive !== false,
       image: image || "",
       altText: altText || "",
+      latitude: lat,
+      longitude: lon,
+      deliveryRadiusKm: radius,
     };
 
     const newBranch = new MongoBranch(payload);
@@ -2477,11 +2702,16 @@ app.post("/admin/api/branches", verifyToken, requireSuperAdmin, requireDb, async
 app.patch("/admin/api/branches/:id", verifyToken, requireSuperAdmin, requireDb, async (req, res) => {
   const { id } = req.params;
 
-  const allowedBranchFields = ["name", "phone", "whatsapp", "address", "map", "geo", "hours", "delivery", "isActive", "image", "altText"];
+  const allowedBranchFields = ["name", "phone", "whatsapp", "address", "map", "geo", "hours", "delivery", "isActive", "image", "altText", "latitude", "longitude", "deliveryRadiusKm"];
   const updates: Record<string, any> = {};
   for (const key of allowedBranchFields) {
     if (req.body[key] !== undefined) {
-      updates[key] = req.body[key];
+      if (key === "latitude" || key === "longitude" || key === "deliveryRadiusKm") {
+        const num = Number(req.body[key]);
+        updates[key] = Number.isFinite(num) ? num : undefined;
+      } else {
+        updates[key] = req.body[key];
+      }
     }
   }
 

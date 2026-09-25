@@ -38,7 +38,7 @@ export default function LocationsPage({ branches }: LocationsPageProps) {
   const displayBranches = (branches || []).filter(b => b.isActive !== false);
 
   return (
-    <div className="container mx-auto px-4 md:px-8 pb-16 space-y-8 animate-fadeIn">
+    <div className="container mx-auto px-4 md:px-8 pt-20 md:pt-8 pb-16 space-y-8 animate-fadeIn">
       {/* Hero section */}
       <div className="text-center space-y-1.5 max-w-xl mx-auto py-6">
         <span className="text-xs font-bold text-[var(--pc-amber-400)] uppercase tracking-widest block">Available Outlets</span>

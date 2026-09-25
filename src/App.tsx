@@ -5,12 +5,13 @@ import { PAGE_SEO, SECTION_TO_PATH, SITE_URL, OG_IMAGE, makePageBreadcrumb } fro
 import { LOGO_ALT, getMenuItemAltText } from "./lib/altText";
 import { FALLBACK_FOOD_IMAGE } from "./lib/images";
 import { 
-  Menu as MenuIcon, X, ShoppingCart, MapPin, Lock, Sun, Flame, ShoppingBag, Search, ArrowLeft
+  Menu as MenuIcon, X, ShoppingCart, MapPin, Lock, Sun, Flame, ShoppingBag, Search, ArrowLeft, Store
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 
 // Components
 const OutletSelector = lazy(() => import("./components/OutletSelector"));
+import LocationGate from "./components/LocationGate";
 import Loader from "./components/Loader";
 import BottomSheet from "./components/BottomSheet";
 
@@ -31,7 +32,7 @@ const ItemDetailContent = lazy(() => import("./components/ItemDetailContent"));
 import { getItemDetailData, itemSlug } from "./lib/itemSlug";
 
 // Types & Utils
-import { MenuItem, Category, CartEntry, HeroBanner, Branch, BundleSelection } from "./types";
+import { MenuItem, Category, CartEntry, HeroBanner, Branch, BundleSelection, CustomerLocation } from "./types";
 import { getEffectiveBasePrice, getOptimizedUnitPrice, getSizeAdjustedPrice, getDefaultSizes } from "./lib/priceUtils";
 import type { MenuItemSize } from "./lib/priceUtils";
 import { SOCIAL_LINKS } from "./lib/socialLinks";
@@ -231,6 +232,58 @@ export default function App() {
   const [branches, setBranches] = useState<Branch[]>([]);
   const [isLoadingBranches, setIsLoadingBranches] = useState(true);
   const [isAppLoading, setIsAppLoading] = useState(true);
+
+  // Global Customer Location (persisted to localStorage)
+  const [customerLocation, setCustomerLocation] = useState<CustomerLocation | null>(() => {
+    try {
+      const raw = localStorage.getItem("pizza_city_customer_location");
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      if (
+        parsed &&
+        (
+          (parsed.orderType === "pickup" && Boolean(parsed.selectedBranchName)) ||
+          (
+            typeof parsed.latitude === "number" &&
+            typeof parsed.longitude === "number" &&
+            Number.isFinite(parsed.latitude) &&
+            Number.isFinite(parsed.longitude)
+          )
+        )
+      ) {
+        return parsed;
+      }
+    } catch (e) {
+      console.warn("Failed reading saved customer location", e);
+    }
+    return null;
+  });
+
+  const [isLocationGateOpen, setIsLocationGateOpen] = useState(false);
+
+  // Prompt location gate on public site entry only when there is no saved location
+  useEffect(() => {
+    if (!customerLocation && !isAdminRoute) {
+      setIsLocationGateOpen(true);
+    }
+  }, [customerLocation, isAdminRoute]);
+
+  const handleLocationSelect = (loc: CustomerLocation) => {
+    setCustomerLocation(loc);
+    try {
+      localStorage.setItem("pizza_city_customer_location", JSON.stringify(loc));
+    } catch (e) {
+      console.warn("Could not save customer location", e);
+    }
+    setIsLocationGateOpen(false);
+    displayToast(
+      loc.orderType === "pickup" && loc.selectedBranchName
+        ? `Pick-up outlet set: ${loc.selectedBranchName}`
+        : (loc.address
+            ? `Delivery location set: ${loc.address.split(",").slice(0, 2).join(",")}`
+            : "Delivery location set!")
+    );
+  };
 
   // Global Cart (persisted to localStorage)
   const [cart, setCart] = useState<CartEntry[]>(loadCartFromStorage);
@@ -811,6 +864,26 @@ export default function App() {
               </ul>
 
               <div className="flex items-center gap-2 md:gap-2.5 shrink-0">
+                {/* Location selector trigger */}
+                <button
+                  onClick={() => setIsLocationGateOpen(true)}
+                  className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-full glass-navbar-btn active:scale-95 transition-all text-xs font-bold max-w-[170px]"
+                  title={customerLocation?.orderType === "pickup" && customerLocation.selectedBranchName ? `Pick-up: ${customerLocation.selectedBranchName}` : (customerLocation?.address || "Set Delivery / Pick-Up")}
+                >
+                  {customerLocation?.orderType === "pickup" ? (
+                    <Store size={14} className="text-[var(--pc-red-500)] flex-shrink-0" />
+                  ) : (
+                    <MapPin size={14} className="text-[var(--pc-red-500)] flex-shrink-0" />
+                  )}
+                  <span className="truncate">
+                    {customerLocation
+                      ? (customerLocation.orderType === "pickup" && customerLocation.selectedBranchName
+                          ? `Pick-up: ${customerLocation.selectedBranchName}`
+                          : (customerLocation.address ? customerLocation.address.split(",")[0] : "GPS Set"))
+                      : "Delivery / Pick-Up"}
+                  </span>
+                </button>
+
                 <button
                   onClick={() => setNavSearchOpen(true)}
                   className="p-2 md:p-2.5 rounded-full glass-navbar-btn active:scale-90 transition-all flex items-center justify-center"
@@ -867,6 +940,36 @@ export default function App() {
                 </button>
               </div>
 
+              {/* Delivery location selector in mobile drawer */}
+              <motion.button
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.03 }}
+                onClick={() => {
+                  setDrawerOpen(false);
+                  setIsLocationGateOpen(true);
+                }}
+                className="flex items-center justify-between w-full py-3 px-4 rounded-2xl font-bold text-sm glass-navbar-btn mt-1"
+              >
+                <span className="flex items-center gap-2.5 min-w-0">
+                  {customerLocation?.orderType === "pickup" ? (
+                    <Store size={16} className="text-[var(--pc-red-500)] flex-shrink-0" />
+                  ) : (
+                    <MapPin size={16} className="text-[var(--pc-red-500)] flex-shrink-0" />
+                  )}
+                  <span className="truncate">
+                    {customerLocation
+                      ? (customerLocation.orderType === "pickup" && customerLocation.selectedBranchName
+                          ? `Pick-up: ${customerLocation.selectedBranchName}`
+                          : `Deliver: ${customerLocation.address ? customerLocation.address.split(",")[0] : "GPS Set"}`)
+                      : "Set Delivery / Pick-Up"}
+                  </span>
+                </span>
+                <span className="text-xs text-[var(--pc-red-500)] font-extrabold flex-shrink-0">
+                  {customerLocation ? "Change" : "Set"}
+                </span>
+              </motion.button>
+
               {/* Theme toggle */}
               <motion.button
                 initial={{ opacity: 0, y: 12 }}
@@ -876,7 +979,7 @@ export default function App() {
                 className="flex items-center justify-between w-full py-3 px-4 rounded-2xl font-bold text-sm glass-navbar-btn mt-1"
               >
                 <span className="flex items-center gap-2.5">
-                  {isDarkMode ? <Sun size={16} className="text-amber-400 fill-amber-400/20" /> : <Flame size={16} className="text-[var(--pc-amber-400)]" />}
+                  {isDarkMode ? <Sun size={16} className="text-amber-400 fill-amber-400/20" /> : <Flame size={16} className="text-[var(--pc-amber-400)] animate-pulse" />}
                   {isDarkMode ? "Midnight Oven Mode" : "Light Mode"}
                 </span>
                 <span className={`relative w-10 h-6 rounded-full transition-colors duration-300 ${isDarkMode ? "bg-[var(--pc-red-500)]" : "bg-[var(--pc-black)]/20"}`}>
@@ -1264,6 +1367,15 @@ export default function App() {
       {/* Overlays & Modals */}
       {!isAdminRoute && (
       <>
+      <LocationGate
+        isOpen={isLocationGateOpen}
+        onClose={() => setIsLocationGateOpen(false)}
+        onLocationSelected={handleLocationSelect}
+        currentLocation={customerLocation}
+        canDismiss={true}
+        branches={branches}
+      />
+
       <Suspense fallback={null}>
         <OutletSelector 
           isOpen={isOutletSelectorOpen} 
@@ -1280,6 +1392,8 @@ export default function App() {
           }}
           onAddToCart={addToCart}
           onOrderSuccess={handleOrderSuccess}
+          customerLocation={customerLocation}
+          onChangeLocation={() => setIsLocationGateOpen(true)}
         />
       </Suspense>
       
@@ -1400,21 +1514,37 @@ export default function App() {
 
       {/* Mobile Sticky Cart Bar */}
       {!isAdminRoute && cartTotalQty > 0 && (
-        <div className="mobile-cart-bar md:hidden">
-          <div className="mobile-cart-bar__info">
-            <span className="mobile-cart-bar__count">
-              <ShoppingBag size={14} className="inline mr-1" />
-              {cartTotalQty} {cartTotalQty === 1 ? "item" : "items"} in cart
-            </span>
-            <span className="mobile-cart-bar__total">
-              <span className="currency">OMR</span> {cartTotalPrice.toFixed(3)}
-            </span>
+        <div className="mobile-cart-bar md:hidden" onClick={() => setIsOutletSelectorOpen(true)}>
+          {/* Thumbnail strip */}
+          <div className="flex items-center gap-2 flex-1 min-w-0">
+            <div className="flex items-center -space-x-2 flex-shrink-0">
+              {cart.slice(0, 3).map((entry, i) => (
+                <img
+                  key={i}
+                  src={entry.item.image || ""}
+                  alt={entry.item.name}
+                  className="w-9 h-9 rounded-full object-cover border-2 border-[rgba(43,17,0,0.97)] flex-shrink-0"
+                  style={{ zIndex: 3 - i }}
+                  onError={(e) => { e.currentTarget.style.display = "none"; }}
+                />
+              ))}
+              {cart.length > 3 && (
+                <div className="w-9 h-9 rounded-full bg-white/10 border-2 border-[rgba(43,17,0,0.97)] flex items-center justify-center text-[10px] font-black text-white flex-shrink-0" style={{ zIndex: 0 }}>
+                  +{cart.length - 3}
+                </div>
+              )}
+            </div>
+            <div className="min-w-0">
+              <p className="mobile-cart-bar__count">
+                {cartTotalQty} {cartTotalQty === 1 ? "item" : "items"}
+              </p>
+              <p className="mobile-cart-bar__total">
+                <span className="currency">OMR</span> {cartTotalPrice.toFixed(3)}
+              </p>
+            </div>
           </div>
-          <button
-            onClick={() => setIsOutletSelectorOpen(true)}
-            className="mobile-cart-bar__btn"
-          >
-            View Cart
+          <button className="mobile-cart-bar__btn flex-shrink-0">
+            View Cart →
           </button>
         </div>
       )}

@@ -93,6 +93,28 @@ export interface Customer {
   notes?: string;
 }
 
+export type OrderType = "delivery" | "pickup";
+
+export interface CustomerLocation {
+  latitude: number;
+  longitude: number;
+  accuracy?: number;
+  address?: string;
+  source: "gps" | "manual";
+  timestamp: number;
+  orderType?: OrderType;
+  selectedBranchName?: string;
+}
+
+export interface DeliveryLocationData {
+  latitude: number;
+  longitude: number;
+  accuracy?: number;
+  address?: string;
+  source: "gps" | "manual";
+  distanceKm?: number;
+}
+
 export interface Order {
   _id: string;
   items: OrderItem[];
@@ -101,6 +123,8 @@ export interface Order {
   status: 'pending' | 'preparing' | 'out-for-delivery' | 'delivered' | 'cancelled';
   total: number;
   timestamp: string;
+  orderType?: OrderType;
+  deliveryLocation?: DeliveryLocationData;
 }
 
 export interface Branch {
@@ -117,6 +141,9 @@ export interface Branch {
   isActive?: boolean;
   image?: string;
   altText?: string;
+  latitude?: number;
+  longitude?: number;
+  deliveryRadiusKm?: number;
 }
 
 // Outlet names are dynamic — the single source of truth is /api/branches (MongoDB).

@@ -61,7 +61,7 @@ export default function ItemDetailContent({
 
   const getGroupCount = (groupId: string): number => {
     const sel = groupSelections[groupId] || {};
-    return Object.values(sel).reduce((sum, val) => sum + val, 0);
+    return Object.values(sel).reduce<number>((sum, val) => sum + (Number(val) || 0), 0);
   };
 
   const handleOptionQtyChange = (
@@ -143,13 +143,13 @@ export default function ItemDetailContent({
         .map((group) => {
           const selMap = groupSelections[group.id] || {};
           const items = Object.entries(selMap)
-            .filter(([_, q]) => q > 0)
+            .filter(([_, q]) => Number(q) > 0)
             .map(([optId, q]) => {
               const optItem = menuMap.get(optId);
               return {
                 menuItemId: optId,
                 name: optItem?.name || optId,
-                quantity: q,
+                quantity: Number(q),
               };
             });
           return {
