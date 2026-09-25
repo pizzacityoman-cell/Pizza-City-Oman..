@@ -43,6 +43,8 @@ import type { MenuItemSize } from "../lib/priceUtils";
 import { getDefaultSizes } from "../lib/priceUtils";
 import { getMenuItemAltText, getBannerAltText, getBranchAltText } from "../lib/altText";
 import { FALLBACK_FOOD_IMAGE } from "../lib/images";
+import { DEFAULT_DELIVERY_RADIUS_KM } from "../lib/location";
+import { parseCoordinatesFromText } from "../lib/location";
 import { BundleConfigEditor } from "./admin/BundleConfigEditor";
 
 interface AdminDashboardProps {
@@ -310,6 +312,9 @@ export default function AdminDashboard({ onShowToast, onMenuUpdated, isDarkMode,
   const [branchAddress, setBranchAddress] = useState("");
   const [branchMap, setBranchMap] = useState("");
   const [branchGeo, setBranchGeo] = useState("");
+  const [branchLatitude, setBranchLatitude] = useState("");
+  const [branchLongitude, setBranchLongitude] = useState("");
+  const [branchDeliveryRadiusKm, setBranchDeliveryRadiusKm] = useState(String(DEFAULT_DELIVERY_RADIUS_KM));
   const [branchHours, setBranchHours] = useState("Daily 11 AM – 11 PM");
   const [branchDelivery, setBranchDelivery] = useState(true);
   const [branchActive, setBranchActive] = useState(true);
@@ -780,6 +785,9 @@ export default function AdminDashboard({ onShowToast, onMenuUpdated, isDarkMode,
       setBranchAddress(branch.address);
       setBranchMap(branch.map || "");
       setBranchGeo(branch.geo || "");
+      setBranchLatitude(branch.latitude !== undefined && branch.latitude !== null ? String(branch.latitude) : "");
+      setBranchLongitude(branch.longitude !== undefined && branch.longitude !== null ? String(branch.longitude) : "");
+      setBranchDeliveryRadiusKm(branch.deliveryRadiusKm !== undefined && branch.deliveryRadiusKm !== null ? String(branch.deliveryRadiusKm) : String(DEFAULT_DELIVERY_RADIUS_KM));
       setBranchHours(branch.hours || "Daily 11 AM – 11 PM");
       setBranchDelivery(branch.delivery !== false);
       setBranchActive(branch.isActive !== false);
@@ -792,6 +800,9 @@ export default function AdminDashboard({ onShowToast, onMenuUpdated, isDarkMode,
       setBranchAddress("");
       setBranchMap("");
       setBranchGeo("");
+      setBranchLatitude("");
+      setBranchLongitude("");
+      setBranchDeliveryRadiusKm(String(DEFAULT_DELIVERY_RADIUS_KM));
       setBranchHours("Daily 11 AM – 11 PM");
       setBranchDelivery(true);
       setBranchActive(true);
@@ -801,13 +812,23 @@ export default function AdminDashboard({ onShowToast, onMenuUpdated, isDarkMode,
     setIsBranchModalOpen(true);
   };
 
+  const handleExtractBranchCoords = () => {
+    const parsed = parseCoordinatesFromText(branchMap);
+    if (parsed) {
+      setBranchLatitude(String(parsed.latitude));
+      setBranchLongitude(String(parsed.longitude));
+      onShowToast(`📍 Extracted GPS: ${parsed.latitude.toFixed(4)}, ${parsed.longitude.toFixed(4)}`);
+    } else {
+      onShowToast("⚠️ Could not extract coordinates from the Map URL. Please enter Latitude & Longitude manually.");
+    }
+  };
+
   const handleSaveBranch = async () => {
     if (!branchName.trim() || !branchPhone.trim() || !branchWhatsapp.trim() || !branchAddress.trim()) {
       onShowToast("⚠️ Branch Name, Phone, WhatsApp, and Address are required parameters.");
       return;
     }
 
-    
     const payload = {
       name: branchName.trim(),
       phone: branchPhone.trim(),
@@ -815,6 +836,9 @@ export default function AdminDashboard({ onShowToast, onMenuUpdated, isDarkMode,
       address: branchAddress.trim(),
       map: branchMap.trim(),
       geo: branchGeo.trim(),
+      latitude: branchLatitude.trim() ? parseFloat(branchLatitude.trim()) : undefined,
+      longitude: branchLongitude.trim() ? parseFloat(branchLongitude.trim()) : undefined,
+      deliveryRadiusKm: branchDeliveryRadiusKm.trim() ? parseFloat(branchDeliveryRadiusKm.trim()) : DEFAULT_DELIVERY_RADIUS_KM,
       hours: branchHours.trim(),
       delivery: branchDelivery,
       isActive: branchActive,
@@ -1447,13 +1471,14 @@ export default function AdminDashboard({ onShowToast, onMenuUpdated, isDarkMode,
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ categories: reorderedPayload }),
+        body: JSON.stringify({ orders: reorderedPayload, categories: reorderedPayload }),
       });
       if (res.ok) {
         onShowToast("✅ Category order updated!");
         loadCategories();
       } else {
-        onShowToast("❌ Failed to save new category order.");
+        const errData = await res.json().catch(() => ({}));
+        onShowToast(`❌ Failed to save new category order: ${errData.error || res.statusText}`);
         loadCategories();
       }
     } catch (err) {
@@ -1463,19 +1488,24 @@ export default function AdminDashboard({ onShowToast, onMenuUpdated, isDarkMode,
   };
 
   const handleReorderMenuItem = async (item: MenuItem, direction: "up" | "down") => {
-    const relevantItems = filteredMenuItems;
+    const relevantItems = [...filteredMenuItems];
     const currentIndex = relevantItems.findIndex(m => m._id === item._id);
     const targetIndex = direction === "up" ? currentIndex - 1 : currentIndex + 1;
     if (targetIndex < 0 || targetIndex >= relevantItems.length) return;
 
-    const newItems = [...relevantItems];
-    const [moved] = newItems.splice(currentIndex, 1);
-    newItems.splice(targetIndex, 0, moved);
+    const [moved] = relevantItems.splice(currentIndex, 1);
+    relevantItems.splice(targetIndex, 0, moved);
 
-    const itemsPayload = newItems.map((m, idx) => ({
+    const itemsPayload = relevantItems.map((m, idx) => ({
       id: m._id,
       displayOrder: idx + 1,
     }));
+
+    // Optimistically update local menuItems state
+    const orderMap = new Map(itemsPayload.map(p => [p.id, p.displayOrder]));
+    setMenuItems(prev =>
+      prev.map(m => orderMap.has(m._id) ? { ...m, displayOrder: orderMap.get(m._id) } : m)
+    );
 
     try {
       const res = await fetch("/admin/api/menu/reorder", {
@@ -1484,16 +1514,19 @@ export default function AdminDashboard({ onShowToast, onMenuUpdated, isDarkMode,
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ items: itemsPayload }),
+        body: JSON.stringify({ orders: itemsPayload, items: itemsPayload }),
       });
       if (res.ok) {
         onShowToast("✅ Menu items reordered!");
         loadMenu();
       } else {
-        onShowToast("❌ Failed to reorder menu items.");
+        const errData = await res.json().catch(() => ({}));
+        onShowToast(`❌ Failed to reorder menu items: ${errData.error || res.statusText}`);
+        loadMenu();
       }
     } catch (err) {
       onShowToast("❌ Network error reordering menu items.");
+      loadMenu();
     }
   };
 
@@ -1715,16 +1748,18 @@ export default function AdminDashboard({ onShowToast, onMenuUpdated, isDarkMode,
   const totalPendingAcrossAll = summaryValues.reduce((sum, item) => sum + item.pending, 0);
 
   // Filter and Search Menu Catalog
-  const filteredMenuItems = menuItems.filter((item) => {
-    const isCategoryMatch = menuFilter === "all" || (menuFilter === "featured" ? (item as any).pinnedFeatured : item.category === menuFilter);
-    if (menuSearch === "all" || !menuSearch.trim()) return isCategoryMatch;
-    
-    const searchLower = menuSearch.toLowerCase();
-    const nameMatch = item.name.toLowerCase().includes(searchLower);
-    const descMatch = (item.description || "").toLowerCase().includes(searchLower);
-    const catMatch = item.category.toLowerCase().includes(searchLower);
-    return isCategoryMatch && (nameMatch || descMatch || catMatch);
-  });
+  const filteredMenuItems = menuItems
+    .filter((item) => {
+      const isCategoryMatch = menuFilter === "all" || (menuFilter === "featured" ? (item as any).pinnedFeatured : item.category === menuFilter);
+      if (menuSearch === "all" || !menuSearch.trim()) return isCategoryMatch;
+      
+      const searchLower = menuSearch.toLowerCase();
+      const nameMatch = item.name.toLowerCase().includes(searchLower);
+      const descMatch = (item.description || "").toLowerCase().includes(searchLower);
+      const catMatch = item.category.toLowerCase().includes(searchLower);
+      return isCategoryMatch && (nameMatch || descMatch || catMatch);
+    })
+    .sort((a, b) => (a.displayOrder ?? 0) - (b.displayOrder ?? 0));
 
   const capitalise = (s: string) => s ? s.charAt(0).toUpperCase() + s.slice(1) : "";
 
@@ -4074,7 +4109,18 @@ export default function AdminDashboard({ onShowToast, onMenuUpdated, isDarkMode,
                   {/* Row 4: Google Maps Link & Map Location */}
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div className="space-y-1.5">
-                      <label className="text-xs font-black text-[var(--pc-gray-700)] uppercase block">Google Maps Link (Map)</label>
+                      <div className="flex items-center justify-between">
+                        <label className="text-xs font-black text-[var(--pc-gray-700)] uppercase block">Google Maps Link</label>
+                        {branchMap && (
+                          <button
+                            type="button"
+                            onClick={handleExtractBranchCoords}
+                            className="text-[10px] font-bold text-[var(--pc-red-500)] hover:underline cursor-pointer"
+                          >
+                            ⚡ Extract GPS
+                          </button>
+                        )}
+                      </div>
                       <input
                         type="text"
                         placeholder="e.g. https://maps.google.com/..."
@@ -4085,13 +4131,53 @@ export default function AdminDashboard({ onShowToast, onMenuUpdated, isDarkMode,
                     </div>
 
                     <div className="space-y-1.5">
-                      <label className="text-xs font-black text-[var(--pc-gray-700)] uppercase block">Coords/Geo (Short location name)</label>
+                      <label className="text-xs font-black text-[var(--pc-gray-700)] uppercase block">Coords/Geo (Short name)</label>
                       <input
                         type="text"
                         placeholder="e.g. Nizwa"
                         value={branchGeo}
                         onChange={(e) => setBranchGeo(e.target.value)}
                         className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-xs text-[var(--pc-gray-600)] focus:border-[var(--pc-amber-400)] focus:outline-none"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Row 4b: Latitude, Longitude & Delivery Radius */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 bg-orange-50/50 p-3.5 rounded-2xl border border-orange-100">
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-black text-[var(--pc-gray-700)] uppercase block">Latitude</label>
+                      <input
+                        type="number"
+                        step="any"
+                        placeholder="e.g. 23.5753"
+                        value={branchLatitude}
+                        onChange={(e) => setBranchLatitude(e.target.value)}
+                        className="w-full bg-white border border-gray-200 rounded-xl px-3 py-2 text-xs text-[var(--pc-gray-700)] font-mono focus:border-[var(--pc-red-500)] focus:outline-none"
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-black text-[var(--pc-gray-700)] uppercase block">Longitude</label>
+                      <input
+                        type="number"
+                        step="any"
+                        placeholder="e.g. 58.1824"
+                        value={branchLongitude}
+                        onChange={(e) => setBranchLongitude(e.target.value)}
+                        className="w-full bg-white border border-gray-200 rounded-xl px-3 py-2 text-xs text-[var(--pc-gray-700)] font-mono focus:border-[var(--pc-red-500)] focus:outline-none"
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-black text-[var(--pc-gray-700)] uppercase block">Delivery Radius (km)</label>
+                      <input
+                        type="number"
+                        step="1"
+                        min="1"
+                        placeholder="15"
+                        value={branchDeliveryRadiusKm}
+                        onChange={(e) => setBranchDeliveryRadiusKm(e.target.value)}
+                        className="w-full bg-white border border-gray-200 rounded-xl px-3 py-2 text-xs text-[var(--pc-gray-700)] font-bold focus:border-[var(--pc-red-500)] focus:outline-none"
                       />
                     </div>
                   </div>

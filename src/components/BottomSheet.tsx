@@ -1,5 +1,5 @@
 import { useEffect, useRef, type ReactNode } from "react";
-import { AnimatePresence, motion, useMotionValue, useTransform } from "motion/react";
+import { AnimatePresence, motion, useMotionValue, useTransform, useDragControls } from "motion/react";
 
 interface BottomSheetProps {
   isOpen: boolean;
@@ -16,6 +16,7 @@ interface BottomSheetProps {
  */
 export default function BottomSheet({ isOpen, onClose, title, children }: BottomSheetProps) {
   const y = useMotionValue(0);
+  const dragControls = useDragControls();
   // Track the drag offset to detect intent (how far the user pulled down)
   const dragProgress = useTransform(y, [0, 240], [0, 1]);
   const progressRef = useRef(dragProgress);
@@ -69,25 +70,34 @@ export default function BottomSheet({ isOpen, onClose, title, children }: Bottom
             exit={{ y: "100%" }}
             transition={{ type: "spring", stiffness: 300, damping: 32 }}
             drag="y"
+            dragControls={dragControls}
+            dragListener={false}
             dragConstraints={{ top: 0, bottom: 0 }}
             dragElastic={{ top: 0, bottom: 0.6 }}
             onDragEnd={handleDragEnd}
             style={{ y }}
-            className="bottom-sheet fixed inset-x-0 bottom-0 z-[59] rounded-t-3xl overflow-y-auto"
+            className="bottom-sheet fixed inset-x-0 bottom-0 z-[59] rounded-t-3xl overflow-hidden flex flex-col"
           >
-            {/* Drag handle */}
-            <button
-              type="button"
-              onClick={onClose}
-              aria-label="Close sheet"
-              className="bottom-sheet__handle w-full flex justify-center pt-3 pb-1 cursor-pointer"
+            {/* Drag handle header — touch gestures start dragging only from here */}
+            <div
+              onPointerDown={(e) => dragControls.start(e)}
+              className="bottom-sheet__header w-full flex flex-col items-center pt-3 pb-1 cursor-grab active:cursor-grabbing shrink-0 select-none touch-none"
             >
-              <span className="bottom-sheet__handle-bar" aria-hidden="true" />
-            </button>
-            {title && (
-              <h3 className="bottom-sheet__title">{title}</h3>
-            )}
-            <div className="bottom-sheet__body">{children}</div>
+              <button
+                type="button"
+                onClick={onClose}
+                aria-label="Close sheet"
+                className="bottom-sheet__handle p-1 cursor-pointer"
+              >
+                <span className="bottom-sheet__handle-bar" aria-hidden="true" />
+              </button>
+              {title && (
+                <h3 className="bottom-sheet__title">{title}</h3>
+              )}
+            </div>
+            <div className="bottom-sheet__body flex-1 overflow-y-auto overscroll-contain">
+              {children}
+            </div>
           </motion.div>
         </>
       )}

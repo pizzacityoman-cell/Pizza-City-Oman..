@@ -5,6 +5,7 @@ import { MenuItem } from "../../types";
 import MenuCard from "../MenuCard";
 
 interface HomeCategorySectionProps {
+  key?: React.Key;
   id: string;
   title: string;
   subtitle: string;
